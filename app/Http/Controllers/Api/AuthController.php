@@ -152,9 +152,10 @@ class AuthController extends Controller
         }
 
         // Try to find user in employees table
-        $employee = Employee::where('email', $request->identifier)
-            ->orWhere('mobile', $request->identifier)
-            ->first();
+        $employee = Employee::where(function ($query) use ($request) {
+            $query->where('email', $request->identifier)
+                ->orWhere('mobile', $request->identifier);
+        })->first();
 
         if ($employee && Hash::check($request->password, $employee->password)) {
             $token = $employee->createToken('auth-token')->plainTextToken;

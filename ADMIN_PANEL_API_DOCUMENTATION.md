@@ -1,5 +1,19 @@
 # Job Portal - Admin Panel API Documentation
 
+i want to build a stand alone admin-panel in C:\wamp64\www\jobprotal  and integrate below apis
+ - React 19.1.1 - UI library
+  - Create React App - Project scaffolding
+  - Material-UI (MUI) v7 - Component library
+    - MUI Data Grid - Tables
+    - MUI Date Pickers - Date handling
+    - MUI Icons
+  - Tiptap - Rich text editor with extensions
+  - React Router DOM v7 - Routing
+  - Axios - HTTP client
+  - Day.js - Date manipulation
+  - Emotion - CSS-in-JS styling
+  dont build in  Vite (blazing fast build)
+
 **Version:** 1.0
 **Last Updated:** October 6, 2025
 **Status:** Production Ready ✅

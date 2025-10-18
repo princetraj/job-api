@@ -8,7 +8,15 @@
       "Bash(mysql:*)",
       "Bash(curl:*)",
       "Bash(python:*)",
-      "Bash(php:*)"
+      "Bash(php:*)",
+      "Bash(npx create-react-app:*)",
+      "Read(//c/wamp64/www/jobprotal/**)",
+      "Bash(npm install:*)",
+      "Bash(mkdir:*)",
+      "Bash(npm start)",
+      "Bash(npm run build:*)",
+      "Bash(findstr:*)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []

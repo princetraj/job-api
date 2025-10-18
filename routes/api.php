@@ -75,8 +75,8 @@ Route::prefix('v1/employer')->middleware('auth:sanctum')->group(function () {
     Route::put('/applications/{appId}/status', [EmployerController::class, 'updateApplicationStatus']);
 });
 
-// Admin Routes (Protected with auth:sanctum)
-Route::prefix('v1/admin')->middleware('auth:sanctum')->group(function () {
+// Admin Routes (Protected with auth:sanctum and admin middleware)
+Route::prefix('v1/admin')->middleware(['auth:sanctum', 'admin'])->group(function () {
     // Admin Profile & Dashboard
     Route::get('/profile', [AdminController::class, 'getProfile']);
     Route::get('/dashboard/stats', [AdminController::class, 'getDashboardStats']);
