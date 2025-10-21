@@ -51,6 +51,16 @@ class PlanController extends Controller
             'type' => 'required|in:employee,employer',
             'price' => 'required|numeric|min:0',
             'validity_days' => 'required|integer|min:1',
+            'is_default' => 'nullable|boolean',
+            // Employee plan features
+            'jobs_can_apply' => 'nullable|integer|min:-1',
+            'contact_details_can_view' => 'nullable|integer|min:-1',
+            'whatsapp_alerts' => 'nullable|boolean',
+            'sms_alerts' => 'nullable|boolean',
+            'employer_can_view_contact_free' => 'nullable|boolean',
+            // Employer plan features
+            'jobs_can_post' => 'nullable|integer|min:-1',
+            'employee_contact_details_can_view' => 'nullable|integer|min:-1',
             'features' => 'nullable|array',
             'features.*.feature_name' => 'required|string',
             'features.*.feature_value' => 'required|string',
@@ -60,13 +70,38 @@ class PlanController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $plan = Plan::create([
+        // If this plan is set as default, unset other default plans of the same type
+        if ($request->is_default) {
+            Plan::where('type', $request->type)
+                ->where('is_default', true)
+                ->update(['is_default' => false]);
+        }
+
+        $planData = [
             'name' => $request->name,
             'description' => $request->description,
             'type' => $request->type,
             'price' => $request->price,
             'validity_days' => $request->validity_days,
-        ]);
+            'is_default' => $request->is_default ?? false,
+        ];
+
+        // Add employee-specific features
+        if ($request->type === 'employee') {
+            $planData['jobs_can_apply'] = $request->jobs_can_apply ?? 5;
+            $planData['contact_details_can_view'] = $request->contact_details_can_view ?? 3;
+            $planData['whatsapp_alerts'] = $request->whatsapp_alerts ?? false;
+            $planData['sms_alerts'] = $request->sms_alerts ?? false;
+            $planData['employer_can_view_contact_free'] = $request->employer_can_view_contact_free ?? false;
+        }
+
+        // Add employer-specific features
+        if ($request->type === 'employer') {
+            $planData['jobs_can_post'] = $request->jobs_can_post ?? 5;
+            $planData['employee_contact_details_can_view'] = $request->employee_contact_details_can_view ?? 10;
+        }
+
+        $plan = Plan::create($planData);
 
         // Create plan features
         if ($request->has('features')) {
@@ -96,6 +131,16 @@ class PlanController extends Controller
             'type' => 'sometimes|required|in:employee,employer',
             'price' => 'sometimes|required|numeric|min:0',
             'validity_days' => 'sometimes|required|integer|min:1',
+            'is_default' => 'nullable|boolean',
+            // Employee plan features
+            'jobs_can_apply' => 'nullable|integer|min:-1',
+            'contact_details_can_view' => 'nullable|integer|min:-1',
+            'whatsapp_alerts' => 'nullable|boolean',
+            'sms_alerts' => 'nullable|boolean',
+            'employer_can_view_contact_free' => 'nullable|boolean',
+            // Employer plan features
+            'jobs_can_post' => 'nullable|integer|min:-1',
+            'employee_contact_details_can_view' => 'nullable|integer|min:-1',
         ]);
 
         if ($validator->fails()) {
@@ -108,7 +153,31 @@ class PlanController extends Controller
             return response()->json(['message' => 'Plan not found'], 404);
         }
 
-        $plan->update($request->only(['name', 'description', 'type', 'price', 'validity_days']));
+        // If this plan is being set as default, unset other default plans of the same type
+        if ($request->has('is_default') && $request->is_default) {
+            Plan::where('type', $plan->type)
+                ->where('id', '!=', $plan->id)
+                ->where('is_default', true)
+                ->update(['is_default' => false]);
+        }
+
+        $plan->update($request->only([
+            'name',
+            'description',
+            'type',
+            'price',
+            'validity_days',
+            'is_default',
+            // Employee plan features
+            'jobs_can_apply',
+            'contact_details_can_view',
+            'whatsapp_alerts',
+            'sms_alerts',
+            'employer_can_view_contact_free',
+            // Employer plan features
+            'jobs_can_post',
+            'employee_contact_details_can_view'
+        ]));
 
         return response()->json([
             'message' => 'Plan updated',

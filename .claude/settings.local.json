@@ -16,7 +16,8 @@
       "Bash(npm start)",
       "Bash(npm run build:*)",
       "Bash(findstr:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(dir:*)"
     ],
     "deny": [],
     "ask": []

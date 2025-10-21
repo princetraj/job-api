@@ -6,9 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Models\Employee;
 use App\Models\Employer;
 use App\Models\Admin;
+use App\Models\Plan;
+use App\Models\EmployeePlanSubscription;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
+use Carbon\Carbon;
 
 class AuthController extends Controller
 {
@@ -29,19 +32,52 @@ class AuthController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
+        // Get the default plan for employees
+        $defaultPlan = Plan::getDefaultPlan('employee');
+
+        if (!$defaultPlan) {
+            return response()->json([
+                'message' => 'Default plan not found. Please contact support.',
+            ], 500);
+        }
+
+        // Calculate plan expiry date
+        $planStartedAt = Carbon::now();
+        $planExpiresAt = $planStartedAt->copy()->addDays($defaultPlan->validity_days);
+
         $employee = Employee::create([
             'email' => $request->email,
             'mobile' => $request->mobile,
             'name' => $request->name,
             'password' => $request->password,
             'gender' => $request->gender,
+            'plan_id' => $defaultPlan->id,
+            'plan_started_at' => $planStartedAt,
+            'plan_expires_at' => $planExpiresAt,
+            'plan_is_active' => true,
+        ]);
+
+        // Create subscription record
+        EmployeePlanSubscription::create([
+            'employee_id' => $employee->id,
+            'plan_id' => $defaultPlan->id,
+            'started_at' => $planStartedAt,
+            'expires_at' => $planExpiresAt,
+            'status' => 'active',
+            'is_default' => true,
+            'jobs_remaining' => $defaultPlan->jobs_can_apply, // Initialize with plan's limit (-1 for unlimited)
+            'contact_views_remaining' => $defaultPlan->contact_details_can_view, // Initialize with plan's contact view limit
         ]);
 
         $tempToken = $employee->createToken('temp-token')->plainTextToken;
 
         return response()->json([
-            'message' => 'Step 1 complete.',
+            'message' => 'Step 1 complete. Default plan assigned.',
             'tempToken' => $tempToken,
+            'plan' => [
+                'name' => $defaultPlan->name,
+                'expires_at' => $planExpiresAt->toDateTimeString(),
+            ],
         ], 200);
     }
 
@@ -79,6 +115,7 @@ class AuthController extends Controller
             'education' => 'nullable|array',
             'experience' => 'nullable|array',
             'skills' => 'nullable|array',
+            'skills.*' => 'exists:skills,id',
         ]);
 
         if ($validator->fails()) {
@@ -89,8 +126,12 @@ class AuthController extends Controller
         $employee->update([
             'education_details' => $request->education,
             'experience_details' => $request->experience,
-            'skills_details' => $request->skills,
         ]);
+
+        // Sync skills relationship
+        if ($request->has('skills')) {
+            $employee->skills()->sync($request->skills);
+        }
 
         // Revoke temp token and create permanent token
         $request->user()->tokens()->delete();
@@ -120,6 +161,19 @@ class AuthController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
+        // Get the default plan for employers
+        $defaultPlan = Plan::getDefaultPlan('employer');
+
+        if (!$defaultPlan) {
+            return response()->json([
+                'message' => 'Default plan not found. Please contact support.',
+            ], 500);
+        }
+
+        // Calculate plan expiry date
+        $planStartedAt = Carbon::now();
+        $planExpiresAt = $planStartedAt->copy()->addDays($defaultPlan->validity_days);
+
         $employer = Employer::create([
             'company_name' => $request->company_name,
             'email' => $request->email,
@@ -127,13 +181,21 @@ class AuthController extends Controller
             'address' => $request->address,
             'industry_type' => $request->industry_type_id,
             'password' => $request->password,
+            'plan_id' => $defaultPlan->id,
+            'plan_started_at' => $planStartedAt,
+            'plan_expires_at' => $planExpiresAt,
+            'plan_is_active' => true,
         ]);
 
         $token = $employer->createToken('auth-token')->plainTextToken;
 
         return response()->json([
-            'message' => 'Registration complete.',
+            'message' => 'Registration complete. Default plan assigned.',
             'token' => $token,
+            'plan' => [
+                'name' => $defaultPlan->name,
+                'expires_at' => $planExpiresAt->toDateTimeString(),
+            ],
         ], 201);
     }
 

@@ -43,6 +43,7 @@ Route::prefix('v1/employee')->middleware('auth:sanctum')->group(function () {
     // Job Search & Application
     Route::get('/jobs/search', [EmployeeController::class, 'searchJobs']);
     Route::post('/jobs/{jobId}/apply', [EmployeeController::class, 'applyForJob']);
+    Route::post('/jobs/{jobId}/view-contact', [EmployeeController::class, 'viewEmployerContact']);
     Route::get('/jobs/applied', [EmployeeController::class, 'getAppliedJobs']);
 
     // Shortlist
@@ -50,12 +51,33 @@ Route::prefix('v1/employee')->middleware('auth:sanctum')->group(function () {
     Route::get('/jobs/shortlisted', [EmployeeController::class, 'getShortlistedJobs']);
     Route::delete('/jobs/shortlist/{id}', [EmployeeController::class, 'removeShortlist']);
 
-    // CV Management
+    // Contact Viewed Jobs
+    Route::get('/jobs/contact-viewed', [EmployeeController::class, 'getContactViewedJobs']);
+
+    // CV Management (Legacy endpoints)
     Route::get('/cv/generate', [EmployeeController::class, 'generateCV']);
     Route::post('/cv/upload', [EmployeeController::class, 'uploadCV']);
     Route::post('/cv/request-professional', [EmployeeController::class, 'requestProfessionalCV']);
     Route::get('/cv/requests', [EmployeeController::class, 'getMyCVRequests']);
     Route::get('/cv/requests/{requestId}', [EmployeeController::class, 'getCVRequestStatus']);
+
+    // CV Management (New - Multiple CVs)
+    Route::get('/cvs', [EmployeeController::class, 'getAllCVs']);
+    Route::post('/cvs/upload', [EmployeeController::class, 'uploadCVWithTitle']);
+    Route::post('/cvs/create', [EmployeeController::class, 'createCVWithProfile']);
+    Route::put('/cvs/{cvId}/set-active', [EmployeeController::class, 'setActiveCVById']);
+    Route::delete('/cvs/{cvId}', [EmployeeController::class, 'deleteCVById']);
+    Route::get('/cvs/{cvId}/download', [EmployeeController::class, 'downloadCVById']);
+
+    // Plan Management
+    Route::get('/plan/current', [EmployeeController::class, 'getCurrentPlan']);
+    Route::get('/plan/available', [EmployeeController::class, 'getAvailablePlans']);
+    Route::post('/plan/upgrade', [EmployeeController::class, 'upgradePlan']);
+    Route::get('/plan/history', [EmployeeController::class, 'getPlanHistory']);
+
+    // Profile Photo Management
+    Route::post('/profile/photo/upload', [EmployeeController::class, 'uploadProfilePhoto']);
+    Route::get('/profile/photo/status', [EmployeeController::class, 'getProfilePhotoStatus']);
 });
 
 // Employer Routes
@@ -65,14 +87,24 @@ Route::prefix('v1/employer')->middleware('auth:sanctum')->group(function () {
     Route::put('/profile/update', [EmployerController::class, 'updateProfile']);
 
     // Job Management
+    Route::get('/jobs', [EmployerController::class, 'getAllJobs']);
     Route::post('/jobs', [EmployerController::class, 'createJob']);
     Route::get('/jobs/{jobId}', [EmployerController::class, 'getJob']);
     Route::put('/jobs/{jobId}', [EmployerController::class, 'updateJob']);
     Route::delete('/jobs/{jobId}', [EmployerController::class, 'deleteJob']);
 
     // Application Management
+    Route::get('/applications', [EmployerController::class, 'getAllApplications']);
     Route::get('/jobs/{jobId}/applications', [EmployerController::class, 'getJobApplications']);
     Route::put('/applications/{appId}/status', [EmployerController::class, 'updateApplicationStatus']);
+    Route::post('/applications/{appId}/view-contact', [EmployerController::class, 'viewApplicationContactDetails']);
+    Route::get('/employees/{employeeId}/cv/download', [EmployerController::class, 'downloadEmployeeCV']);
+
+    // Plan Management
+    Route::get('/plan/current', [EmployerController::class, 'getCurrentPlan']);
+    Route::get('/plan/available', [EmployerController::class, 'getAvailablePlans']);
+    Route::post('/plan/upgrade', [EmployerController::class, 'upgradePlan']);
+    Route::get('/plan/history', [EmployerController::class, 'getPlanHistory']);
 });
 
 // Admin Routes (Protected with auth:sanctum and admin middleware)
@@ -115,6 +147,22 @@ Route::prefix('v1/admin')->middleware(['auth:sanctum', 'admin'])->group(function
     // CV Request Management
     Route::get('/cv-requests', [AdminController::class, 'getCVRequests']);
     Route::put('/cv-requests/{id}/status', [AdminController::class, 'updateCVRequestStatus']);
+
+    // Plan Upgrade Management
+    Route::post('/employees/{employeeId}/upgrade-plan', [AdminController::class, 'upgradeEmployeePlan']);
+    Route::post('/employers/{employerId}/upgrade-plan', [AdminController::class, 'upgradeEmployerPlan']);
+
+    // Profile Photo Approval
+    Route::get('/profile-photos', [AdminController::class, 'getProfilePhotos']); // New: with status filter
+    Route::get('/profile-photos/pending', [AdminController::class, 'getPendingProfilePhotos']); // Backward compatibility
+    Route::put('/profile-photos/{employeeId}/status', [AdminController::class, 'updateProfilePhotoStatus']);
+
+    // Plan Orders & Transactions
+    Route::get('/plan-orders', [AdminController::class, 'getPlanOrders']);
+    Route::get('/plan-orders/{id}', [AdminController::class, 'getPlanOrder']);
+    Route::get('/payment-transactions', [AdminController::class, 'getPaymentTransactions']);
+    Route::get('/payment-transactions/{id}', [AdminController::class, 'getPaymentTransaction']);
+    Route::get('/payment-stats', [AdminController::class, 'getPaymentStats']);
 
     // Content Management
     Route::get('/content', [ContentController::class, 'index']);
@@ -164,6 +212,12 @@ Route::prefix('v1/catalogs')->group(function () {
     Route::post('/categories', [CatalogController::class, 'createJobCategory'])->middleware('auth:sanctum');
     Route::put('/categories/{id}', [CatalogController::class, 'updateJobCategory'])->middleware('auth:sanctum');
     Route::delete('/categories/{id}', [CatalogController::class, 'deleteJobCategory'])->middleware('auth:sanctum');
+
+    // Skills
+    Route::get('/skills', [CatalogController::class, 'getSkills']);
+    Route::post('/skills', [CatalogController::class, 'createSkill'])->middleware('auth:sanctum');
+    Route::put('/skills/{id}', [CatalogController::class, 'updateSkill'])->middleware('auth:sanctum');
+    Route::delete('/skills/{id}', [CatalogController::class, 'deleteSkill'])->middleware('auth:sanctum');
 });
 
 // Payment & Subscription Routes
@@ -171,6 +225,12 @@ Route::prefix('v1/payments')->middleware('auth:sanctum')->group(function () {
     Route::post('/subscribe', [\App\Http\Controllers\Api\PaymentController::class, 'subscribe']);
     Route::post('/verify', [\App\Http\Controllers\Api\PaymentController::class, 'verifyPayment']);
     Route::get('/history', [\App\Http\Controllers\Api\PaymentController::class, 'getPaymentHistory']);
+
+    // Razorpay Integration
+    Route::post('/razorpay/create-order', [\App\Http\Controllers\Api\PaymentController::class, 'createRazorpayOrder']);
+    Route::post('/razorpay/verify', [\App\Http\Controllers\Api\PaymentController::class, 'verifyRazorpayPayment']);
+    Route::get('/orders/{orderId}', [\App\Http\Controllers\Api\PaymentController::class, 'getOrderDetails']);
+    Route::get('/transactions', [\App\Http\Controllers\Api\PaymentController::class, 'getTransactionHistory']);
 });
 
 // Coupon Routes
@@ -178,8 +238,8 @@ Route::prefix('v1/coupons')->group(function () {
     Route::post('/validate', [\App\Http\Controllers\Api\PaymentController::class, 'validateCoupon']);
 });
 
-// Public Job Routes
-Route::prefix('v1/jobs')->group(function () {
+// Public Job Routes (with optional authentication)
+Route::prefix('v1/jobs')->middleware('auth.optional')->group(function () {
     Route::get('/search', [EmployeeController::class, 'searchJobs']);
 });
 

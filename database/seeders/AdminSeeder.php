@@ -23,36 +23,20 @@ class AdminSeeder extends Seeder
             'role' => 'super_admin',
         ]);
 
-        // Create Employee Manager
+        // Create Manager
         Admin::create([
-            'name' => 'Employee Manager',
-            'email' => 'employee.manager@jobportal.com',
+            'name' => 'Manager',
+            'email' => 'manager@jobportal.com',
             'password' => 'password123',
-            'role' => 'employee_manager',
+            'role' => 'manager',
         ]);
 
-        // Create Employer Manager
+        // Create Staff
         Admin::create([
-            'name' => 'Employer Manager',
-            'email' => 'employer.manager@jobportal.com',
+            'name' => 'Staff',
+            'email' => 'staff@jobportal.com',
             'password' => 'password123',
-            'role' => 'employer_manager',
-        ]);
-
-        // Create Plan Upgrade Manager
-        Admin::create([
-            'name' => 'Plan Manager',
-            'email' => 'plan.manager@jobportal.com',
-            'password' => 'password123',
-            'role' => 'plan_upgrade_manager',
-        ]);
-
-        // Create Catalog Manager
-        Admin::create([
-            'name' => 'Catalog Manager',
-            'email' => 'catalog.manager@jobportal.com',
-            'password' => 'password123',
-            'role' => 'catalog_manager',
+            'role' => 'staff',
         ]);
     }
 }

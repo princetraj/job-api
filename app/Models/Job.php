@@ -33,11 +33,13 @@ class Job extends Model
         'category_id',
         'is_featured',
         'featured_end_date',
+        'last_viewed_at',
     ];
 
     protected $casts = [
         'is_featured' => 'boolean',
         'featured_end_date' => 'datetime',
+        'last_viewed_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

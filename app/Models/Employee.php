@@ -39,11 +39,19 @@ class Employee extends Authenticatable
         'skills_details',
         'cv_url',
         'plan_id',
+        'plan_started_at',
+        'plan_expires_at',
+        'plan_is_active',
+        'profile_photo_url',
+        'profile_photo_status',
+        'profile_photo_rejection_reason',
     ];
 
     protected $hidden = [
         'password_hash',
     ];
+
+    protected $appends = ['public_profile_photo_url', 'profile_photo_full_url'];
 
     protected $casts = [
         'address' => 'array',
@@ -51,6 +59,9 @@ class Employee extends Authenticatable
         'experience_details' => 'array',
         'skills_details' => 'array',
         'dob' => 'date',
+        'plan_started_at' => 'datetime',
+        'plan_expires_at' => 'datetime',
+        'plan_is_active' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
@@ -88,6 +99,50 @@ class Employee extends Authenticatable
     }
 
     /**
+     * Get all plan subscriptions for the employee.
+     */
+    public function planSubscriptions()
+    {
+        return $this->hasMany(EmployeePlanSubscription::class);
+    }
+
+    /**
+     * Get the current active subscription.
+     */
+    public function currentSubscription()
+    {
+        return $this->hasOne(EmployeePlanSubscription::class)
+                    ->where('status', 'active')
+                    ->latest('started_at');
+    }
+
+    /**
+     * Check if the employee has an active plan.
+     */
+    public function hasActivePlan()
+    {
+        return $this->plan_is_active &&
+               $this->plan_id &&
+               ($this->plan_expires_at === null || $this->plan_expires_at->isFuture());
+    }
+
+    /**
+     * Check if the plan is expired.
+     */
+    public function isPlanExpired()
+    {
+        return $this->plan_expires_at !== null && $this->plan_expires_at->isPast();
+    }
+
+    /**
+     * Get all skills for the employee.
+     */
+    public function skills()
+    {
+        return $this->belongsToMany(Skill::class, 'employee_skill');
+    }
+
+    /**
      * Set the password attribute (hashed).
      */
     public function setPasswordAttribute($value)
@@ -101,5 +156,36 @@ class Employee extends Authenticatable
     public function getPasswordAttribute()
     {
         return $this->attributes['password_hash'];
+    }
+
+    /**
+     * Get the public profile photo URL (only if approved).
+     * This is used when employers view employee profiles.
+     */
+    public function getPublicProfilePhotoUrlAttribute()
+    {
+        if ($this->profile_photo_status === 'approved') {
+            return $this->getProfilePhotoFullUrlAttribute();
+        }
+        return null;
+    }
+
+    /**
+     * Get the full URL for the profile photo based on ASSET_URL from ENV.
+     * Returns the complete URL including the domain from environment configuration.
+     */
+    public function getProfilePhotoFullUrlAttribute()
+    {
+        if (!$this->profile_photo_url) {
+            return null;
+        }
+
+        $assetUrl = config('app.asset_url') ?: config('app.url');
+
+        // Remove trailing slash from asset URL
+        $assetUrl = rtrim($assetUrl, '/');
+
+        // Profile photo URL already starts with /storage/
+        return $assetUrl . $this->profile_photo_url;
     }
 }

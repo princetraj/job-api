@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Industry;
 use App\Models\Location;
 use App\Models\JobCategory;
+use App\Models\Skill;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -246,5 +247,82 @@ class CatalogController extends Controller
         $category->delete();
 
         return response()->json(['message' => 'Job category deleted'], 200);
+    }
+
+    // ================= SKILLS =================
+
+    /**
+     * Get all skills
+     */
+    public function getSkills(Request $request)
+    {
+        $skills = Skill::all();
+        return response()->json(['skills' => $skills], 200);
+    }
+
+    /**
+     * Create skill (Admin: Catalog Manager / Super Admin)
+     */
+    public function createSkill(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|max:255|unique:skills,name',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $skill = Skill::create([
+            'name' => $request->name,
+        ]);
+
+        return response()->json([
+            'message' => 'Skill created',
+            'skill' => $skill,
+        ], 201);
+    }
+
+    /**
+     * Update skill (Admin: Catalog Manager / Super Admin)
+     */
+    public function updateSkill(Request $request, $id)
+    {
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|max:255|unique:skills,name,' . $id,
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $skill = Skill::find($id);
+
+        if (!$skill) {
+            return response()->json(['message' => 'Skill not found'], 404);
+        }
+
+        $skill->update(['name' => $request->name]);
+
+        return response()->json([
+            'message' => 'Skill updated',
+            'skill' => $skill,
+        ], 200);
+    }
+
+    /**
+     * Delete skill (Admin: Super Admin)
+     */
+    public function deleteSkill(Request $request, $id)
+    {
+        $skill = Skill::find($id);
+
+        if (!$skill) {
+            return response()->json(['message' => 'Skill not found'], 404);
+        }
+
+        $skill->delete();
+
+        return response()->json(['message' => 'Skill deleted'], 200);
     }
 }
