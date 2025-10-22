@@ -192,6 +192,19 @@ class PaymentController extends Controller
      */
     public function validateCoupon(Request $request)
     {
+        try {
+            $user = $request->user();
+
+            // User should be authenticated via auth:sanctum middleware
+            // If we reach here without a user, something is wrong
+            if (!$user) {
+                \Log::error('ValidateCoupon: User not found despite auth middleware');
+                return response()->json([
+                    'valid' => false,
+                    'message' => 'Authentication required',
+                ], 401);
+            }
+
         $validator = Validator::make($request->all(), [
             'coupon_code' => 'required|string',
             'plan_id' => 'required|exists:plans,id',
@@ -201,51 +214,133 @@ class PaymentController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $coupon = Coupon::where('code', $request->coupon_code)
+        $coupon = Coupon::where('code', strtoupper($request->coupon_code))
+            ->where('status', 'approved')
             ->where('expiry_date', '>=', now())
             ->first();
 
         if (!$coupon) {
             return response()->json([
                 'valid' => false,
-                'message' => 'Invalid or expired coupon code',
+                'message' => 'Invalid, expired, or not approved coupon code',
             ], 200);
         }
 
         $plan = Plan::find($request->plan_id);
+
+        if (!$plan) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Plan not found',
+            ], 200);
+        }
+
+        // Determine user type
+        $userType = null;
+        $userId = $user->id;
+
+        if ($user instanceof \App\Models\Employee) {
+            $userType = 'employee';
+        } elseif ($user instanceof \App\Models\Employer) {
+            $userType = 'employer';
+        } else {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Invalid user type',
+            ], 200);
+        }
+
+        // Check if coupon is for the right user type
+        if ($coupon->coupon_for !== $userType) {
+            return response()->json([
+                'valid' => false,
+                'message' => "This coupon is only valid for {$coupon->coupon_for}s",
+            ], 200);
+        }
+
+        // Check if user is assigned to this coupon
+        $isAssigned = \App\Models\CouponUser::where('coupon_id', $coupon->id)
+            ->where('user_id', $userId)
+            ->where('user_type', $userType)
+            ->exists();
+
+        if (!$isAssigned) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'This coupon is not available for your account',
+            ], 200);
+        }
+
+        // Check if plan type matches coupon type
+        if ($plan->type !== $userType) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Plan type does not match coupon type',
+            ], 200);
+        }
+
         $discount = ($plan->price * $coupon->discount_percentage) / 100;
         $finalAmount = $plan->price - $discount;
 
-        return response()->json([
-            'valid' => true,
-            'coupon' => [
-                'code' => $coupon->code,
-                'discount_percentage' => $coupon->discount_percentage,
-                'expiry_date' => $coupon->expiry_date,
-            ],
-            'plan' => [
-                'price' => $plan->price,
-            ],
-            'discount_amount' => number_format($discount, 2, '.', ''),
-            'final_amount' => number_format($finalAmount, 2, '.', ''),
-        ], 200);
+            return response()->json([
+                'valid' => true,
+                'coupon' => [
+                    'code' => $coupon->code,
+                    'name' => $coupon->name,
+                    'discount_percentage' => $coupon->discount_percentage,
+                    'expiry_date' => $coupon->expiry_date,
+                ],
+                'plan' => [
+                    'price' => $plan->price,
+                ],
+                'discount_amount' => number_format($discount, 2, '.', ''),
+                'final_amount' => number_format($finalAmount, 2, '.', ''),
+            ], 200);
+        } catch (\Exception $e) {
+            \Log::error('Coupon validation error: ' . $e->getMessage(), [
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString(),
+                'request_data' => $request->all()
+            ]);
+
+            return response()->json([
+                'valid' => false,
+                'message' => 'An error occurred while validating the coupon. Please try again.',
+                'error_details' => config('app.debug') ? $e->getMessage() : null,
+            ], 200); // Return 200 to avoid logout, with valid: false
+        }
     }
 
     /**
-     * Create Razorpay order for plan upgrade
+     * Create Razorpay order for plan upgrade (with optional coupon)
      */
     public function createRazorpayOrder(Request $request)
     {
+        \Log::info('CreateRazorpayOrder: Starting order creation', [
+            'user_id' => $request->user()->id ?? 'unknown',
+            'request_data' => $request->all()
+        ]);
+
         $validator = Validator::make($request->all(), [
             'plan_id' => 'required|exists:plans,id',
+            'coupon_code' => 'nullable|string',
         ]);
 
         if ($validator->fails()) {
+            \Log::error('CreateRazorpayOrder: Validation failed', ['errors' => $validator->errors()]);
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
         $user = $request->user();
         $plan = Plan::find($request->plan_id);
+
+        if (!$plan) {
+            \Log::error('CreateRazorpayOrder: Plan not found', ['plan_id' => $request->plan_id]);
+            return response()->json([
+                'message' => 'Plan not found',
+            ], 404);
+        }
 
         // Check if plan is for the correct user type
         $userType = class_basename(get_class($user));
@@ -262,13 +357,76 @@ class PaymentController extends Controller
             ], 400);
         }
 
+        // Handle coupon validation and discount calculation
+        $originalAmount = $plan->price;
+        $discountAmount = 0;
+        $finalAmount = $originalAmount;
+        $coupon = null;
+
+        if ($request->coupon_code) {
+            $coupon = Coupon::where('code', strtoupper($request->coupon_code))
+                ->where('status', 'approved')
+                ->where('expiry_date', '>=', now())
+                ->first();
+
+            if (!$coupon) {
+                return response()->json([
+                    'message' => 'Invalid, expired, or not approved coupon code',
+                ], 400);
+            }
+
+            // Check if coupon is for the right user type
+            if ($coupon->coupon_for !== strtolower($userType)) {
+                return response()->json([
+                    'message' => "This coupon is only valid for {$coupon->coupon_for}s",
+                ], 400);
+            }
+
+            // Check if user is assigned to this coupon
+            $isAssigned = \App\Models\CouponUser::where('coupon_id', $coupon->id)
+                ->where('user_id', $user->id)
+                ->where('user_type', strtolower($userType))
+                ->exists();
+
+            if (!$isAssigned) {
+                return response()->json([
+                    'message' => 'This coupon is not available for your account',
+                ], 400);
+            }
+
+            // Calculate discount
+            $discountAmount = ($originalAmount * $coupon->discount_percentage) / 100;
+            $finalAmount = $originalAmount - $discountAmount;
+        }
+
+        \Log::info('CreateRazorpayOrder: Coupon validation passed', [
+            'original_amount' => $originalAmount,
+            'discount_amount' => $discountAmount,
+            'final_amount' => $finalAmount,
+            'coupon_code' => $coupon ? $coupon->code : null
+        ]);
+
         DB::beginTransaction();
         try {
             // Initialize Razorpay API
-            $api = new Api(config('services.razorpay.key'), config('services.razorpay.secret'));
+            $razorpayKey = config('services.razorpay.key');
+            $razorpaySecret = config('services.razorpay.secret');
+
+            if (empty($razorpayKey) || empty($razorpaySecret)) {
+                \Log::error('CreateRazorpayOrder: Razorpay credentials not configured');
+                throw new \Exception('Payment gateway not configured. Please contact administrator.');
+            }
+
+            \Log::info('CreateRazorpayOrder: Initializing Razorpay API');
+            $api = new Api($razorpayKey, $razorpaySecret);
 
             // Convert amount to paise (Razorpay requires amount in smallest currency unit)
-            $amountInPaise = $plan->price * 100;
+            $amountInPaise = (int)($finalAmount * 100);
+
+            \Log::info('CreateRazorpayOrder: Creating Razorpay order', [
+                'amount_in_paise' => $amountInPaise,
+                'amount_in_rupees' => $finalAmount
+            ]);
 
             // Create Razorpay order
             $razorpayOrder = $api->order->create([
@@ -280,29 +438,47 @@ class PaymentController extends Controller
                     'plan_name' => $plan->name,
                     'user_type' => $userType,
                     'user_id' => $user->id,
+                    'coupon_code' => $coupon ? $coupon->code : null,
+                    'discount_amount' => $discountAmount,
                 ]
             ]);
 
+            \Log::info('CreateRazorpayOrder: Razorpay order created successfully', [
+                'razorpay_order_id' => $razorpayOrder['id']
+            ]);
+
             // Store order in database
+            \Log::info('CreateRazorpayOrder: Saving order to database');
             $order = PlanOrder::create([
                 'employee_id' => $userType === 'Employee' ? $user->id : null,
                 'employer_id' => $userType === 'Employer' ? $user->id : null,
                 'plan_id' => $plan->id,
+                'coupon_id' => $coupon ? $coupon->id : null,
                 'razorpay_order_id' => $razorpayOrder['id'],
-                'amount' => $plan->price,
+                'amount' => $finalAmount,
+                'original_amount' => $originalAmount,
+                'discount_amount' => $discountAmount,
                 'currency' => 'INR',
                 'status' => 'created',
-                'notes' => 'Plan upgrade order',
+                'notes' => $coupon ? "Plan upgrade with coupon: {$coupon->code}" : 'Plan upgrade order',
             ]);
+
+            \Log::info('CreateRazorpayOrder: Order saved successfully', ['order_id' => $order->id]);
 
             DB::commit();
 
             return response()->json([
                 'order_id' => $order->id,
                 'razorpay_order_id' => $razorpayOrder['id'],
-                'amount' => $plan->price,
+                'amount' => $finalAmount,
+                'original_amount' => $originalAmount,
+                'discount_amount' => $discountAmount,
                 'currency' => 'INR',
                 'razorpay_key' => config('services.razorpay.key'),
+                'coupon_applied' => $coupon ? [
+                    'code' => $coupon->code,
+                    'discount_percentage' => $coupon->discount_percentage,
+                ] : null,
                 'plan' => [
                     'id' => $plan->id,
                     'name' => $plan->name,
@@ -312,9 +488,31 @@ class PaymentController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
+
+            \Log::error('CreateRazorpayOrder: Order creation failed', [
+                'error_message' => $e->getMessage(),
+                'error_file' => $e->getFile(),
+                'error_line' => $e->getLine(),
+                'stack_trace' => $e->getTraceAsString(),
+                'user_id' => $user->id ?? 'unknown',
+                'plan_id' => $request->plan_id ?? 'unknown',
+                'coupon_code' => $request->coupon_code ?? null
+            ]);
+
+            // Check for specific error types
+            $errorMessage = 'Failed to create order';
+            if (strpos($e->getMessage(), 'Authentication') !== false) {
+                $errorMessage = 'Payment gateway authentication failed. Please contact support.';
+            } elseif (strpos($e->getMessage(), 'amount') !== false) {
+                $errorMessage = 'Invalid payment amount. Please try again.';
+            } elseif (strpos($e->getMessage(), 'SQLSTATE') !== false || strpos($e->getMessage(), 'database') !== false) {
+                $errorMessage = 'Database error. Please try again or contact support.';
+            }
+
             return response()->json([
-                'message' => 'Failed to create order',
-                'error' => $e->getMessage()
+                'message' => $errorMessage,
+                'error' => config('app.debug') ? $e->getMessage() : 'An error occurred while processing your request',
+                'error_code' => $e->getCode()
             ], 500);
         }
     }
@@ -537,5 +735,81 @@ class PaymentController extends Controller
         return response()->json([
             'orders' => $orders,
         ], 200);
+    }
+
+    /**
+     * Get user's assigned coupons for plan upgrade
+     */
+    public function getMyAssignedCoupons(Request $request)
+    {
+        try {
+            $user = $request->user();
+
+            // User should be authenticated via auth:sanctum middleware
+            if (!$user) {
+                \Log::error('GetMyAssignedCoupons: User not found despite auth middleware');
+                return response()->json([
+                    'message' => 'Authentication required',
+                    'coupons' => [],
+                    'count' => 0,
+                ], 401);
+            }
+
+            $userType = class_basename(get_class($user));
+
+        // Get all assigned coupons for this user that are valid
+        $assignedCoupons = \App\Models\CouponUser::where('user_id', $user->id)
+            ->where('user_type', strtolower($userType))
+            ->with(['coupon'])
+            ->get()
+            ->filter(function ($assignment) {
+                // Check if coupon exists and is valid
+                if (!$assignment->coupon) {
+                    return false;
+                }
+                try {
+                    return $assignment->coupon->isValid();
+                } catch (\Exception $e) {
+                    return false;
+                }
+            })
+            ->map(function ($assignment) {
+                // Additional null check before accessing properties
+                if (!$assignment->coupon) {
+                    return null;
+                }
+
+                return [
+                    'id' => $assignment->coupon->id ?? null,
+                    'code' => $assignment->coupon->code ?? '',
+                    'name' => $assignment->coupon->name ?? '',
+                    'discount_percentage' => $assignment->coupon->discount_percentage ?? 0,
+                    'expiry_date' => $assignment->coupon->expiry_date ?? null,
+                    'coupon_for' => $assignment->coupon->coupon_for ?? '',
+                    'assigned_at' => $assignment->assigned_at ?? null,
+                ];
+            })
+            ->filter() // Remove null values
+            ->values();
+
+            return response()->json([
+                'coupons' => $assignedCoupons,
+                'count' => $assignedCoupons->count(),
+            ], 200);
+        } catch (\Exception $e) {
+            \Log::error('Error fetching assigned coupons: ' . $e->getMessage(), [
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString(),
+                'user_id' => $user->id ?? 'unknown'
+            ]);
+
+            return response()->json([
+                'message' => 'An error occurred while fetching coupons. Please try again.',
+                'coupons' => [],
+                'count' => 0,
+                'error_details' => config('app.debug') ? $e->getMessage() : null,
+            ], 200); // Return 200 to avoid logout, with empty coupons array
+        }
     }
 }

@@ -56,7 +56,7 @@ class Admin extends Authenticatable
      */
     public function coupons()
     {
-        return $this->hasMany(Coupon::class, 'staff_id');
+        return $this->hasMany(Coupon::class, 'created_by');
     }
 
     /**

@@ -137,9 +137,15 @@ Route::prefix('v1/admin')->middleware(['auth:sanctum', 'admin'])->group(function
     // Job Management
     Route::get('/jobs', [AdminController::class, 'getJobs']);
 
-    // Coupon Management
-    Route::post('/coupons', [AdminController::class, 'createCoupon']);
-    Route::get('/coupons', [AdminController::class, 'getCoupons']);
+    // Coupon Management (New improved system)
+    Route::post('/coupons', [\App\Http\Controllers\Api\CouponController::class, 'createCoupon']);
+    Route::get('/coupons', [\App\Http\Controllers\Api\CouponController::class, 'getCoupons']);
+    Route::get('/coupons/pending', [\App\Http\Controllers\Api\CouponController::class, 'getPendingCoupons']);
+    Route::get('/coupons/{id}', [\App\Http\Controllers\Api\CouponController::class, 'getCoupon']);
+    Route::put('/coupons/{id}/approve', [\App\Http\Controllers\Api\CouponController::class, 'approveCoupon']);
+    Route::post('/coupons/{id}/assign-users', [\App\Http\Controllers\Api\CouponController::class, 'assignUsers']);
+    Route::delete('/coupons/{couponId}/users/{assignmentId}', [\App\Http\Controllers\Api\CouponController::class, 'removeUser']);
+    Route::delete('/coupons/{id}', [\App\Http\Controllers\Api\CouponController::class, 'deleteCoupon']);
 
     // Commission Management
     Route::post('/commissions/manual', [AdminController::class, 'addManualCommission']);
@@ -236,8 +242,9 @@ Route::prefix('v1/payments')->middleware('auth:sanctum')->group(function () {
 });
 
 // Coupon Routes
-Route::prefix('v1/coupons')->group(function () {
+Route::prefix('v1/coupons')->middleware('auth:sanctum')->group(function () {
     Route::post('/validate', [\App\Http\Controllers\Api\PaymentController::class, 'validateCoupon']);
+    Route::get('/my-coupons', [\App\Http\Controllers\Api\PaymentController::class, 'getMyAssignedCoupons']);
 });
 
 // Public Job Routes (with optional authentication)

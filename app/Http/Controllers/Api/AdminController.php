@@ -199,48 +199,6 @@ class AdminController extends Controller
         return response()->json(['jobs' => $jobs], 200);
     }
 
-    /**
-     * Create coupon (Super Admin / Plan Upgrade Manager)
-     */
-    public function createCoupon(Request $request)
-    {
-        $this->authorizeRole($request, ['super_admin', 'manager']);
-
-        $validator = Validator::make($request->all(), [
-            'code' => 'required|string|unique:coupons,code',
-            'discount_percentage' => 'required|numeric|min:0|max:100',
-            'expiry_date' => 'required|date',
-            'staff_id' => 'required|exists:admins,id',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
-        }
-
-        $coupon = Coupon::create([
-            'code' => $request->code,
-            'discount_percentage' => $request->discount_percentage,
-            'expiry_date' => $request->expiry_date,
-            'staff_id' => $request->staff_id,
-        ]);
-
-        return response()->json([
-            'message' => 'Coupon created',
-            'coupon' => $coupon,
-        ], 201);
-    }
-
-    /**
-     * Get all coupons
-     */
-    public function getCoupons(Request $request)
-    {
-        $this->authorizeRole($request, ['super_admin', 'manager']);
-
-        $coupons = Coupon::with('staff')->get();
-
-        return response()->json(['coupons' => $coupons], 200);
-    }
 
     /**
      * Add manual commission (Super Admin / Plan Upgrade Manager)
@@ -837,7 +795,7 @@ class AdminController extends Controller
     {
         $this->authorizeRole($request, ['super_admin', 'manager']);
 
-        $query = PlanOrder::with(['plan', 'employee', 'employer', 'transaction']);
+        $query = PlanOrder::with(['plan', 'employee', 'employer', 'transaction', 'coupon']);
 
         // Filter by status
         if ($request->has('status')) {
@@ -874,7 +832,7 @@ class AdminController extends Controller
     {
         $this->authorizeRole($request, ['super_admin', 'manager']);
 
-        $order = PlanOrder::with(['plan', 'employee', 'employer', 'transaction'])->find($id);
+        $order = PlanOrder::with(['plan', 'employee', 'employer', 'transaction', 'coupon'])->find($id);
 
         if (!$order) {
             return response()->json(['message' => 'Order not found'], 404);
@@ -890,7 +848,7 @@ class AdminController extends Controller
     {
         $this->authorizeRole($request, ['super_admin', 'manager']);
 
-        $query = PaymentTransaction::with(['order.plan', 'order.employee', 'order.employer']);
+        $query = PaymentTransaction::with(['order.plan', 'order.employee', 'order.employer', 'order.coupon']);
 
         // Filter by status
         if ($request->has('status')) {
@@ -924,7 +882,7 @@ class AdminController extends Controller
     {
         $this->authorizeRole($request, ['super_admin', 'manager']);
 
-        $transaction = PaymentTransaction::with(['order.plan', 'order.employee', 'order.employer'])->find($id);
+        $transaction = PaymentTransaction::with(['order.plan', 'order.employee', 'order.employer', 'order.coupon'])->find($id);
 
         if (!$transaction) {
             return response()->json(['message' => 'Transaction not found'], 404);

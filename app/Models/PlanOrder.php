@@ -28,8 +28,11 @@ class PlanOrder extends Model
         'employee_id',
         'employer_id',
         'plan_id',
+        'coupon_id',
         'razorpay_order_id',
         'amount',
+        'original_amount',
+        'discount_amount',
         'currency',
         'status',
         'notes',
@@ -37,6 +40,8 @@ class PlanOrder extends Model
 
     protected $casts = [
         'amount' => 'decimal:2',
+        'original_amount' => 'decimal:2',
+        'discount_amount' => 'decimal:2',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
@@ -71,5 +76,13 @@ class PlanOrder extends Model
     public function transaction()
     {
         return $this->hasOne(PaymentTransaction::class, 'order_id');
+    }
+
+    /**
+     * Get the coupon used for this order.
+     */
+    public function coupon()
+    {
+        return $this->belongsTo(Coupon::class);
     }
 }
