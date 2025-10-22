@@ -31,6 +31,7 @@ class Admin extends Authenticatable
         'email',
         'password',
         'role',
+        'manager_id',
     ];
 
     protected $hidden = [
@@ -64,6 +65,22 @@ class Admin extends Authenticatable
     public function commissionTransactions()
     {
         return $this->hasMany(CommissionTransaction::class, 'staff_id');
+    }
+
+    /**
+     * Get the manager that this staff member reports to.
+     */
+    public function manager()
+    {
+        return $this->belongsTo(Admin::class, 'manager_id');
+    }
+
+    /**
+     * Get all staff members managed by this manager.
+     */
+    public function staff()
+    {
+        return $this->hasMany(Admin::class, 'manager_id');
     }
 
     /**

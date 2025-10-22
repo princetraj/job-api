@@ -311,7 +311,19 @@ class AdminController extends Controller
     {
         $this->authorizeRole($request, ['super_admin']);
 
-        $admins = Admin::latest()->paginate(50);
+        $query = Admin::with('manager');
+
+        // Filter by role (staff or manager)
+        if ($request->has('role') && in_array($request->role, ['staff', 'manager'])) {
+            $query->where('role', $request->role);
+        }
+
+        // Filter by manager_id (find staff assigned to a specific manager)
+        if ($request->has('manager_id')) {
+            $query->where('manager_id', $request->manager_id);
+        }
+
+        $admins = $query->latest()->paginate(50);
 
         return response()->json(['admins' => $admins], 200);
     }
@@ -323,7 +335,7 @@ class AdminController extends Controller
     {
         $this->authorizeRole($request, ['super_admin']);
 
-        $admin = Admin::find($id);
+        $admin = Admin::with(['manager', 'staff'])->find($id);
 
         if (!$admin) {
             return response()->json(['message' => 'Admin not found'], 404);
@@ -344,10 +356,24 @@ class AdminController extends Controller
             'email' => 'required|email|unique:admins,email',
             'password' => 'required|string|min:8',
             'role' => 'required|in:super_admin,manager,staff',
+            'manager_id' => 'nullable|exists:admins,id',
         ]);
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        // If manager_id is provided and role is staff, validate the manager
+        if ($request->manager_id && $request->role === 'staff') {
+            $manager = Admin::find($request->manager_id);
+            if (!$manager || $manager->role !== 'manager') {
+                return response()->json(['message' => 'Invalid manager. The selected admin must have manager role'], 400);
+            }
+        }
+
+        // Only staff can have a manager
+        if ($request->manager_id && $request->role !== 'staff') {
+            return response()->json(['message' => 'Only staff members can be assigned to a manager'], 400);
         }
 
         $admin = Admin::create([
@@ -355,11 +381,12 @@ class AdminController extends Controller
             'email' => $request->email,
             'password' => $request->password, // Will be hashed by model mutator
             'role' => $request->role,
+            'manager_id' => ($request->role === 'staff') ? $request->manager_id : null,
         ]);
 
         return response()->json([
             'message' => 'Admin created successfully',
-            'admin' => $admin,
+            'admin' => $admin->load('manager'),
         ], 201);
     }
 
@@ -381,6 +408,7 @@ class AdminController extends Controller
             'email' => 'sometimes|email|unique:admins,email,' . $id,
             'role' => 'sometimes|in:super_admin,manager,staff',
             'password' => 'sometimes|string|min:8',
+            'manager_id' => 'nullable|exists:admins,id',
         ]);
 
         if ($validator->fails()) {
@@ -388,6 +416,29 @@ class AdminController extends Controller
         }
 
         $updateData = $request->only(['name', 'email', 'role']);
+
+        // Handle manager_id based on role
+        if ($request->has('manager_id')) {
+            $newRole = $request->role ?? $admin->role;
+
+            if ($request->manager_id && $newRole === 'staff') {
+                $manager = Admin::find($request->manager_id);
+                if (!$manager || $manager->role !== 'manager') {
+                    return response()->json(['message' => 'Invalid manager. The selected admin must have manager role'], 400);
+                }
+                $updateData['manager_id'] = $request->manager_id;
+            } elseif ($request->manager_id && $newRole !== 'staff') {
+                return response()->json(['message' => 'Only staff members can be assigned to a manager'], 400);
+            } else {
+                // If manager_id is null, unassign
+                $updateData['manager_id'] = null;
+            }
+        }
+
+        // If role is changing from staff to manager/super_admin, clear manager_id
+        if ($request->has('role') && $request->role !== 'staff') {
+            $updateData['manager_id'] = null;
+        }
 
         if ($request->has('password')) {
             $updateData['password'] = $request->password; // Will be hashed by model mutator
@@ -397,7 +448,7 @@ class AdminController extends Controller
 
         return response()->json([
             'message' => 'Admin updated successfully',
-            'admin' => $admin,
+            'admin' => $admin->fresh()->load('manager'),
         ], 200);
     }
 
@@ -424,6 +475,71 @@ class AdminController extends Controller
         return response()->json([
             'message' => 'Admin deleted successfully',
         ], 200);
+    }
+
+    /**
+     * Assign staff to a manager (Super Admin only)
+     */
+    public function assignStaffToManager(Request $request, $staffId)
+    {
+        $this->authorizeRole($request, ['super_admin']);
+
+        $validator = Validator::make($request->all(), [
+            'manager_id' => 'nullable|exists:admins,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $staff = Admin::find($staffId);
+
+        if (!$staff) {
+            return response()->json(['message' => 'Staff not found'], 404);
+        }
+
+        // Only staff role can be assigned to a manager
+        if ($staff->role !== 'staff') {
+            return response()->json(['message' => 'Only staff members can be assigned to a manager'], 400);
+        }
+
+        // If manager_id is provided, validate that the admin is a manager
+        if ($request->manager_id) {
+            $manager = Admin::find($request->manager_id);
+
+            if (!$manager) {
+                return response()->json(['message' => 'Manager not found'], 404);
+            }
+
+            if ($manager->role !== 'manager') {
+                return response()->json(['message' => 'The selected admin must have manager role'], 400);
+            }
+        }
+
+        // Update staff's manager
+        $staff->update(['manager_id' => $request->manager_id]);
+
+        return response()->json([
+            'message' => $request->manager_id
+                ? 'Staff assigned to manager successfully'
+                : 'Staff unassigned from manager successfully',
+            'staff' => $staff->fresh()->load('manager'),
+        ], 200);
+    }
+
+    /**
+     * Get all managers (Super Admin only)
+     */
+    public function getManagers(Request $request)
+    {
+        $this->authorizeRole($request, ['super_admin']);
+
+        $managers = Admin::where('role', 'manager')
+            ->withCount('staff')
+            ->latest()
+            ->get();
+
+        return response()->json(['managers' => $managers], 200);
     }
 
     /**

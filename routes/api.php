@@ -119,6 +119,8 @@ Route::prefix('v1/admin')->middleware(['auth:sanctum', 'admin'])->group(function
     Route::post('/admins', [AdminController::class, 'createAdmin']);
     Route::put('/admins/{id}', [AdminController::class, 'updateAdmin']);
     Route::delete('/admins/{id}', [AdminController::class, 'deleteAdmin']);
+    Route::put('/admins/{staffId}/assign-manager', [AdminController::class, 'assignStaffToManager']);
+    Route::get('/managers', [AdminController::class, 'getManagers']);
 
     // Employee Management
     Route::get('/employees', [AdminController::class, 'getEmployees']);
