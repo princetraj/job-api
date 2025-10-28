@@ -201,16 +201,21 @@ class AdminController extends Controller
 
 
     /**
-     * Add manual commission (Super Admin / Plan Upgrade Manager)
+     * Add manual commission (Super Admin only)
      */
     public function addManualCommission(Request $request)
     {
-        $this->authorizeRole($request, ['super_admin', 'manager']);
+        $this->authorizeRole($request, ['super_admin']);
 
         $validator = Validator::make($request->all(), [
             'staff_id' => 'required|exists:admins,id',
             'amount_earned' => 'required|numeric|min:0',
             'payment_id' => 'nullable|exists:payments,id',
+            'order_id' => 'nullable|exists:plan_orders,id',
+            'coupon_id' => 'nullable|exists:coupons,id',
+            'transaction_amount' => 'nullable|numeric|min:0',
+            'discount_amount' => 'nullable|numeric|min:0',
+            'discount_percentage' => 'nullable|numeric|min:0|max:100',
         ]);
 
         if ($validator->fails()) {
@@ -220,7 +225,12 @@ class AdminController extends Controller
         $commission = CommissionTransaction::create([
             'staff_id' => $request->staff_id,
             'payment_id' => $request->payment_id,
+            'order_id' => $request->order_id,
+            'coupon_id' => $request->coupon_id,
             'amount_earned' => $request->amount_earned,
+            'transaction_amount' => $request->transaction_amount,
+            'discount_amount' => $request->discount_amount,
+            'discount_percentage' => $request->discount_percentage,
             'type' => 'manual',
         ]);
 
@@ -237,9 +247,40 @@ class AdminController extends Controller
     {
         $this->authorizeRole($request, ['super_admin']);
 
-        $commissions = CommissionTransaction::with(['staff', 'payment'])->latest()->get();
+        $query = CommissionTransaction::with(['staff', 'payment', 'order', 'coupon']);
 
-        return response()->json(['commissions' => $commissions], 200);
+        // Filter by staff_id
+        if ($request->filled('staff_id')) {
+            $query->where('staff_id', $request->staff_id);
+        }
+
+        // Filter by type (coupon_based or manual)
+        if ($request->filled('type')) {
+            $query->where('type', $request->type);
+        }
+
+        // Filter by date range
+        if ($request->filled('start_date')) {
+            $query->whereDate('created_at', '>=', $request->start_date);
+        }
+        if ($request->filled('end_date')) {
+            $query->whereDate('created_at', '<=', $request->end_date);
+        }
+
+        // Filter by coupon_id
+        if ($request->filled('coupon_id')) {
+            $query->where('coupon_id', $request->coupon_id);
+        }
+
+        $commissions = $query->latest()->paginate(50);
+
+        // Calculate total earnings
+        $totalEarnings = $query->sum('amount_earned');
+
+        return response()->json([
+            'commissions' => $commissions,
+            'total_earnings' => $totalEarnings,
+        ], 200);
     }
 
     /**
@@ -250,7 +291,7 @@ class AdminController extends Controller
         $admin = $request->user();
 
         $commissions = CommissionTransaction::where('staff_id', $admin->id)
-            ->with('payment')
+            ->with(['payment', 'order', 'coupon'])
             ->latest()
             ->get();
 
@@ -259,6 +300,55 @@ class AdminController extends Controller
         return response()->json([
             'commissions' => $commissions,
             'total_earned' => $totalEarned,
+        ], 200);
+    }
+
+    /**
+     * View manager's commissions (Manager can see their own and their staff's commissions)
+     */
+    public function getManagerCommissions(Request $request)
+    {
+        $this->authorizeRole($request, ['manager']);
+
+        $admin = $request->user();
+
+        // Get manager's own commissions and commissions of staff under this manager
+        $staffIds = Admin::where('manager_id', $admin->id)->pluck('id')->toArray();
+        $staffIds[] = $admin->id; // Include manager's own commissions
+
+        $query = CommissionTransaction::whereIn('staff_id', $staffIds)
+            ->with(['staff', 'payment', 'order', 'coupon']);
+
+        // Filter by staff_id
+        if ($request->filled('staff_id') && in_array($request->staff_id, $staffIds)) {
+            $query->where('staff_id', $request->staff_id);
+        }
+
+        // Filter by type (coupon_based or manual)
+        if ($request->filled('type')) {
+            $query->where('type', $request->type);
+        }
+
+        // Filter by date range
+        if ($request->filled('start_date')) {
+            $query->whereDate('created_at', '>=', $request->start_date);
+        }
+        if ($request->filled('end_date')) {
+            $query->whereDate('created_at', '<=', $request->end_date);
+        }
+
+        $commissions = $query->latest()->paginate(50);
+
+        // Calculate total earnings
+        $totalEarnings = CommissionTransaction::whereIn('staff_id', $staffIds)->sum('amount_earned');
+
+        // Get staff list
+        $staffList = Admin::whereIn('id', $staffIds)->select('id', 'name', 'email', 'role')->get();
+
+        return response()->json([
+            'commissions' => $commissions,
+            'total_earnings' => $totalEarnings,
+            'staff_list' => $staffList,
         ], 200);
     }
 

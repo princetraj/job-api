@@ -581,6 +581,35 @@ class PaymentController extends Controller
             // Update order status
             $order->update(['status' => 'paid']);
 
+            // Create commission transaction if coupon was used
+            if ($order->coupon_id) {
+                try {
+                    $coupon = Coupon::find($order->coupon_id);
+                    if ($coupon && $coupon->created_by) {
+                        $commissionPercentage = 10; // 10% commission (can be configured)
+                        $commissionAmount = ($order->amount * $commissionPercentage) / 100;
+
+                        CommissionTransaction::create([
+                            'staff_id' => $coupon->created_by,
+                            'order_id' => $order->id,
+                            'coupon_id' => $coupon->id,
+                            'amount_earned' => $commissionAmount,
+                            'transaction_amount' => $order->amount,
+                            'discount_amount' => $order->discount_amount,
+                            'discount_percentage' => $order->discount_amount > 0 ? (($order->discount_amount / $order->original_amount) * 100) : 0,
+                            'type' => 'coupon_based',
+                        ]);
+                    }
+                } catch (\Exception $e) {
+                    // Log the error but don't fail the payment
+                    \Log::error('Failed to create commission transaction: ' . $e->getMessage(), [
+                        'order_id' => $order->id,
+                        'coupon_id' => $order->coupon_id,
+                        'error' => $e->getTraceAsString()
+                    ]);
+                }
+            }
+
             // Get the plan
             $plan = Plan::find($order->plan_id);
 

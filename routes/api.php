@@ -150,6 +150,7 @@ Route::prefix('v1/admin')->middleware(['auth:sanctum', 'admin'])->group(function
     // Commission Management
     Route::post('/commissions/manual', [AdminController::class, 'addManualCommission']);
     Route::get('/commissions/all', [AdminController::class, 'getAllCommissions']);
+    Route::get('/commissions/manager', [AdminController::class, 'getManagerCommissions']);
     Route::get('/commissions/my', [AdminController::class, 'getStaffCommissions']);
 
     // CV Request Management
