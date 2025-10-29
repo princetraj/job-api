@@ -252,11 +252,37 @@ class CatalogController extends Controller
     // ================= SKILLS =================
 
     /**
-     * Get all skills
+     * Get all skills (approved only for public, all for admins)
      */
     public function getSkills(Request $request)
     {
-        $skills = Skill::all();
+        // Check if user is authenticated and is admin
+        $user = $request->user();
+
+        // Check if user is admin (using guard or model type)
+        $isAdmin = false;
+        if ($user) {
+            $isAdmin = $user instanceof \App\Models\Admin ||
+                       get_class($user) === 'App\Models\Admin' ||
+                       (method_exists($user, 'getTable') && $user->getTable() === 'admins');
+        }
+
+        // Admins can see all skills with status filter, others only see approved
+        if ($isAdmin && $request->has('status')) {
+            $status = $request->status;
+            if (in_array($status, ['approved', 'pending', 'rejected'])) {
+                $skills = Skill::where('approval_status', $status)->orderBy('created_at', 'desc')->get();
+            } else {
+                $skills = Skill::orderBy('created_at', 'desc')->get();
+            }
+        } elseif ($isAdmin) {
+            // Admins see all skills if no filter specified
+            $skills = Skill::orderBy('created_at', 'desc')->get();
+        } else {
+            // Non-admins only see approved skills
+            $skills = Skill::approved()->orderBy('name', 'asc')->get();
+        }
+
         return response()->json(['skills' => $skills], 200);
     }
 
@@ -273,8 +299,13 @@ class CatalogController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
+        $admin = $request->user();
+
         $skill = Skill::create([
             'name' => $request->name,
+            'approval_status' => 'approved', // Admin-created skills are auto-approved
+            'created_by' => $admin ? $admin->id : null,
+            'created_by_type' => 'admin',
         ]);
 
         return response()->json([
@@ -324,5 +355,66 @@ class CatalogController extends Controller
         $skill->delete();
 
         return response()->json(['message' => 'Skill deleted'], 200);
+    }
+
+    /**
+     * Approve skill (Admin)
+     */
+    public function approveSkill(Request $request, $id)
+    {
+        $skill = Skill::find($id);
+
+        if (!$skill) {
+            return response()->json(['message' => 'Skill not found'], 404);
+        }
+
+        $skill->update([
+            'approval_status' => 'approved',
+            'rejection_reason' => null,
+        ]);
+
+        return response()->json([
+            'message' => 'Skill approved successfully',
+            'skill' => $skill,
+        ], 200);
+    }
+
+    /**
+     * Reject skill (Admin)
+     */
+    public function rejectSkill(Request $request, $id)
+    {
+        $validator = Validator::make($request->all(), [
+            'rejection_reason' => 'nullable|string|max:500',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $skill = Skill::find($id);
+
+        if (!$skill) {
+            return response()->json(['message' => 'Skill not found'], 404);
+        }
+
+        $skill->update([
+            'approval_status' => 'rejected',
+            'rejection_reason' => $request->rejection_reason,
+        ]);
+
+        return response()->json([
+            'message' => 'Skill rejected',
+            'skill' => $skill,
+        ], 200);
+    }
+
+    /**
+     * Get pending skills (Admin)
+     */
+    public function getPendingSkills(Request $request)
+    {
+        $skills = Skill::pending()->orderBy('created_at', 'desc')->get();
+        return response()->json(['skills' => $skills], 200);
     }
 }

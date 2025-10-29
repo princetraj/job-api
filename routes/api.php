@@ -223,9 +223,12 @@ Route::prefix('v1/catalogs')->group(function () {
     Route::delete('/categories/{id}', [CatalogController::class, 'deleteJobCategory'])->middleware('auth:sanctum');
 
     // Skills
-    Route::get('/skills', [CatalogController::class, 'getSkills']);
+    Route::get('/skills', [CatalogController::class, 'getSkills'])->middleware('auth.optional');
+    Route::get('/skills/pending', [CatalogController::class, 'getPendingSkills'])->middleware('auth:sanctum');
     Route::post('/skills', [CatalogController::class, 'createSkill'])->middleware('auth:sanctum');
     Route::put('/skills/{id}', [CatalogController::class, 'updateSkill'])->middleware('auth:sanctum');
+    Route::put('/skills/{id}/approve', [CatalogController::class, 'approveSkill'])->middleware('auth:sanctum');
+    Route::put('/skills/{id}/reject', [CatalogController::class, 'rejectSkill'])->middleware('auth:sanctum');
     Route::delete('/skills/{id}', [CatalogController::class, 'deleteSkill'])->middleware('auth:sanctum');
 });
 

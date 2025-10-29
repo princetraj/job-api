@@ -12,6 +12,7 @@ use App\Models\Plan;
 use App\Models\EmployeePlanSubscription;
 use App\Models\EmployeeContactView;
 use App\Models\Employer;
+use App\Models\Skill;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Storage;
@@ -61,8 +62,39 @@ class EmployeeController extends Controller
 
         // Handle skills_details separately using relationship
         if ($request->field === 'skills_details') {
-            // Value should be an array of skill IDs
-            $skillIds = is_array($request->value) ? $request->value : [];
+            // Value should be an array of skill IDs or skill names (strings)
+            $skillsInput = is_array($request->value) ? $request->value : [];
+            $skillIds = [];
+
+            foreach ($skillsInput as $item) {
+                // Check if item is numeric (existing skill ID)
+                if (is_numeric($item)) {
+                    $skillIds[] = (int) $item;
+                }
+                // Check if item is a string (new custom skill or existing skill name)
+                elseif (is_string($item) && !empty(trim($item))) {
+                    $skillName = trim($item);
+
+                    // Check if skill already exists (case-insensitive)
+                    $existingSkill = Skill::whereRaw('LOWER(name) = ?', [strtolower($skillName)])->first();
+
+                    if ($existingSkill) {
+                        // Use existing skill ID
+                        $skillIds[] = $existingSkill->id;
+                    } else {
+                        // Create new skill with pending status (needs admin approval)
+                        $newSkill = Skill::create([
+                            'name' => $skillName,
+                            'approval_status' => 'pending',
+                            'created_by' => $employee->id,
+                            'created_by_type' => 'employee',
+                        ]);
+                        $skillIds[] = $newSkill->id;
+                    }
+                }
+            }
+
+            // Sync all skill IDs (both existing and newly created)
             $employee->skills()->sync($skillIds);
         } else {
             $employee->update([
