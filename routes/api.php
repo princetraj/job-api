@@ -230,6 +230,36 @@ Route::prefix('v1/catalogs')->group(function () {
     Route::put('/skills/{id}/approve', [CatalogController::class, 'approveSkill'])->middleware('auth:sanctum');
     Route::put('/skills/{id}/reject', [CatalogController::class, 'rejectSkill'])->middleware('auth:sanctum');
     Route::delete('/skills/{id}', [CatalogController::class, 'deleteSkill'])->middleware('auth:sanctum');
+
+    // Degrees
+    Route::get('/degrees', [CatalogController::class, 'getDegrees'])->middleware('auth.optional');
+    Route::post('/degrees', [CatalogController::class, 'createDegree'])->middleware('auth:sanctum');
+    Route::put('/degrees/{id}', [CatalogController::class, 'updateDegree'])->middleware('auth:sanctum');
+    Route::put('/degrees/{id}/approve', [CatalogController::class, 'approveDegree'])->middleware('auth:sanctum');
+    Route::put('/degrees/{id}/reject', [CatalogController::class, 'rejectDegree'])->middleware('auth:sanctum');
+    Route::delete('/degrees/{id}', [CatalogController::class, 'deleteDegree'])->middleware('auth:sanctum');
+
+    // Universities
+    Route::get('/universities', [CatalogController::class, 'getUniversities'])->middleware('auth.optional');
+    Route::post('/universities', [CatalogController::class, 'createUniversity'])->middleware('auth:sanctum');
+    Route::put('/universities/{id}', [CatalogController::class, 'updateUniversity'])->middleware('auth:sanctum');
+    Route::put('/universities/{id}/approve', [CatalogController::class, 'approveUniversity'])->middleware('auth:sanctum');
+    Route::put('/universities/{id}/reject', [CatalogController::class, 'rejectUniversity'])->middleware('auth:sanctum');
+    Route::delete('/universities/{id}', [CatalogController::class, 'deleteUniversity'])->middleware('auth:sanctum');
+
+    // Field of Studies
+    Route::get('/field-of-studies', [CatalogController::class, 'getFieldOfStudies'])->middleware('auth.optional');
+    Route::post('/field-of-studies', [CatalogController::class, 'createFieldOfStudy'])->middleware('auth:sanctum');
+    Route::put('/field-of-studies/{id}', [CatalogController::class, 'updateFieldOfStudy'])->middleware('auth:sanctum');
+    Route::put('/field-of-studies/{id}/approve', [CatalogController::class, 'approveFieldOfStudy'])->middleware('auth:sanctum');
+    Route::put('/field-of-studies/{id}/reject', [CatalogController::class, 'rejectFieldOfStudy'])->middleware('auth:sanctum');
+    Route::delete('/field-of-studies/{id}', [CatalogController::class, 'deleteFieldOfStudy'])->middleware('auth:sanctum');
+
+    // Education Levels (Admin only - no approval workflow)
+    Route::get('/education-levels', [CatalogController::class, 'getEducationLevels'])->middleware('auth.optional');
+    Route::post('/education-levels', [CatalogController::class, 'createEducationLevel'])->middleware('auth:sanctum');
+    Route::put('/education-levels/{id}', [CatalogController::class, 'updateEducationLevel'])->middleware('auth:sanctum');
+    Route::delete('/education-levels/{id}', [CatalogController::class, 'deleteEducationLevel'])->middleware('auth:sanctum');
 });
 
 // Payment & Subscription Routes

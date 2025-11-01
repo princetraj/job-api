@@ -8,6 +8,10 @@ use App\Models\Employer;
 use App\Models\Admin;
 use App\Models\Plan;
 use App\Models\EmployeePlanSubscription;
+use App\Models\EmployeeEducation;
+use App\Models\Degree;
+use App\Models\University;
+use App\Models\FieldOfStudy;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
@@ -124,9 +128,77 @@ class AuthController extends Controller
 
         $employee = $request->user();
         $employee->update([
-            'education_details' => $request->education,
             'experience_details' => $request->experience,
         ]);
+
+        // Save education to normalized tables
+        if ($request->has('education') && is_array($request->education)) {
+            // Delete existing education records for this employee (if any)
+            $employee->educations()->delete();
+
+            foreach ($request->education as $edu) {
+                if (!is_array($edu)) continue;
+
+                // Get or create degree
+                $degree = null;
+                if (isset($edu['degree']) && !empty(trim($edu['degree']))) {
+                    $degreeName = trim($edu['degree']);
+                    $degree = Degree::firstOrCreate(
+                        ['name' => $degreeName],
+                        [
+                            'approval_status' => 'pending',
+                            'created_by' => $employee->id,
+                            'created_by_type' => 'employee',
+                        ]
+                    );
+                }
+
+                // Get or create university
+                $university = null;
+                if (isset($edu['university']) && !empty(trim($edu['university']))) {
+                    $universityName = trim($edu['university']);
+                    $university = University::firstOrCreate(
+                        ['name' => $universityName],
+                        [
+                            'approval_status' => 'pending',
+                            'created_by' => $employee->id,
+                            'created_by_type' => 'employee',
+                        ]
+                    );
+                }
+
+                // Get or create field of study
+                $fieldOfStudy = null;
+                if (isset($edu['field']) && !empty(trim($edu['field']))) {
+                    $fieldName = trim($edu['field']);
+                    $fieldOfStudy = FieldOfStudy::firstOrCreate(
+                        ['name' => $fieldName],
+                        [
+                            'approval_status' => 'pending',
+                            'created_by' => $employee->id,
+                            'created_by_type' => 'employee',
+                        ]
+                    );
+                }
+
+                // Get education level ID (convert empty string to null)
+                $educationLevelId = null;
+                if (isset($edu['education_level_id']) && $edu['education_level_id'] !== '' && $edu['education_level_id'] !== null) {
+                    $educationLevelId = (int) $edu['education_level_id'];
+                }
+
+                // Create education record with foreign keys
+                EmployeeEducation::create([
+                    'employee_id' => $employee->id,
+                    'education_level_id' => $educationLevelId,
+                    'degree_id' => $degree ? $degree->id : null,
+                    'university_id' => $university ? $university->id : null,
+                    'field_of_study_id' => $fieldOfStudy ? $fieldOfStudy->id : null,
+                    'year_start' => $edu['year_start'] ?? '',
+                    'year_end' => $edu['year_end'] ?? '',
+                ]);
+            }
+        }
 
         // Sync skills relationship
         if ($request->has('skills')) {

@@ -34,7 +34,6 @@ class Employee extends Authenticatable
         'gender',
         'dob',
         'address',
-        'education_details',
         'experience_details',
         'skills_details',
         'cv_url',
@@ -55,7 +54,6 @@ class Employee extends Authenticatable
 
     protected $casts = [
         'address' => 'array',
-        'education_details' => 'array',
         'experience_details' => 'array',
         'skills_details' => 'array',
         'dob' => 'date',
@@ -140,6 +138,23 @@ class Employee extends Authenticatable
     public function skills()
     {
         return $this->belongsToMany(Skill::class, 'employee_skill');
+    }
+
+    /**
+     * Get all education records for the employee.
+     */
+    public function educations()
+    {
+        return $this->hasMany(EmployeeEducation::class);
+    }
+
+    /**
+     * Get education with related data (degree, university, field).
+     */
+    public function educationsWithDetails()
+    {
+        return $this->hasMany(EmployeeEducation::class)
+                    ->with(['degree', 'university', 'fieldOfStudy']);
     }
 
     /**

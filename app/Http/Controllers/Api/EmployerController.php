@@ -262,7 +262,7 @@ class EmployerController extends Controller
         $applications = JobApplication::whereHas('job', function ($query) use ($employer) {
             $query->where('employer_id', $employer->id);
         })
-        ->with(['employee', 'employee.plan', 'job'])
+        ->with(['employee', 'employee.plan', 'employee.educations.degree', 'employee.educations.university', 'employee.educations.fieldOfStudy', 'employee.educations.educationLevel', 'employee.skills', 'job'])
         ->latest()
         ->get();
 
@@ -284,15 +284,30 @@ class EmployerController extends Controller
             // 2. Employee's plan allows free contact viewing
             $showContactDetails = $contactDetailsViewed || $employeeAllowsFreeContactView;
 
+            // Convert educations from normalized table to array format
+            $educationDetails = $app->employee->educations->map(function($edu) {
+                return [
+                    'education_level' => $edu->educationLevel ? $edu->educationLevel->name : '',
+                    'degree' => $edu->degree ? $edu->degree->name : '',
+                    'university' => $edu->university ? $edu->university->name : '',
+                    'field' => $edu->fieldOfStudy ? $edu->fieldOfStudy->name : '',
+                    'year_start' => $edu->year_start,
+                    'year_end' => $edu->year_end,
+                ];
+            })->toArray();
+
+            // Convert skills from relationship to array
+            $skillsDetails = $app->employee->skills->pluck('name')->toArray();
+
             // Build employee data
             $employeeData = [
                 'id' => $app->employee->id,
                 'name' => $app->employee->name,
                 'gender' => $app->employee->gender,
                 'dob' => $app->employee->dob,
-                'education_details' => $app->employee->education_details,
+                'education_details' => $educationDetails,
                 'experience_details' => $app->employee->experience_details,
-                'skills_details' => $app->employee->skills_details,
+                'skills_details' => $skillsDetails,
                 'profile_photo_url' => $app->employee->profile_photo_status === 'approved' ? $app->employee->profile_photo_url : null,
                 'contact_details_hidden' => !$showContactDetails,
             ];
@@ -345,7 +360,7 @@ class EmployerController extends Controller
         $job->update(['last_viewed_at' => now()]);
 
         $applications = JobApplication::where('job_id', $jobId)
-            ->with(['employee', 'employee.plan'])
+            ->with(['employee', 'employee.plan', 'employee.educations.degree', 'employee.educations.university', 'employee.educations.fieldOfStudy', 'employee.educations.educationLevel', 'employee.skills'])
             ->latest()
             ->get();
 
@@ -367,15 +382,30 @@ class EmployerController extends Controller
             // 2. Employee's plan allows free contact viewing
             $showContactDetails = $contactDetailsViewed || $employeeAllowsFreeContactView;
 
+            // Convert educations from normalized table to array format
+            $educationDetails = $app->employee->educations->map(function($edu) {
+                return [
+                    'education_level' => $edu->educationLevel ? $edu->educationLevel->name : '',
+                    'degree' => $edu->degree ? $edu->degree->name : '',
+                    'university' => $edu->university ? $edu->university->name : '',
+                    'field' => $edu->fieldOfStudy ? $edu->fieldOfStudy->name : '',
+                    'year_start' => $edu->year_start,
+                    'year_end' => $edu->year_end,
+                ];
+            })->toArray();
+
+            // Convert skills from relationship to array
+            $skillsDetails = $app->employee->skills->pluck('name')->toArray();
+
             // Build employee data
             $employeeData = [
                 'id' => $app->employee->id,
                 'name' => $app->employee->name,
                 'gender' => $app->employee->gender,
                 'dob' => $app->employee->dob,
-                'education_details' => $app->employee->education_details,
+                'education_details' => $educationDetails,
                 'experience_details' => $app->employee->experience_details,
-                'skills_details' => $app->employee->skills_details,
+                'skills_details' => $skillsDetails,
                 'profile_photo_url' => $app->employee->profile_photo_status === 'approved' ? $app->employee->profile_photo_url : null,
                 'contact_details_hidden' => !$showContactDetails,
             ];
@@ -712,7 +742,7 @@ class EmployerController extends Controller
             );
         } else {
             // For created CVs, generate PDF from profile data
-            $employee->load(['plan']);
+            $employee->load(['plan', 'educations.degree', 'educations.university', 'educations.fieldOfStudy', 'educations.educationLevel', 'skills']);
 
             // Generate HTML content for CV
             $html = $this->generateCVHtml($employee, $cv->title);
@@ -731,6 +761,21 @@ class EmployerController extends Controller
      */
     private function generateCVHtml($employee, $title)
     {
+        // Convert educations from normalized table to array format for template
+        $educationDetails = $employee->educations->map(function($edu) {
+            return [
+                'education_level' => $edu->educationLevel ? $edu->educationLevel->name : '',
+                'degree' => $edu->degree ? $edu->degree->name : '',
+                'university' => $edu->university ? $edu->university->name : '',
+                'field' => $edu->fieldOfStudy ? $edu->fieldOfStudy->name : '',
+                'year_start' => $edu->year_start,
+                'year_end' => $edu->year_end,
+            ];
+        })->toArray();
+
+        // Convert skills from relationship to array for template
+        $skillsDetails = $employee->skills->pluck('name')->toArray();
+
         // Get profile photo if approved
         $profilePhotoBase64 = null;
         if ($employee->profile_photo_status === 'approved' && $employee->profile_photo_url) {
@@ -804,10 +849,10 @@ class EmployerController extends Controller
         }
 
         // Education
-        if ($employee->education_details && is_array($employee->education_details)) {
+        if (!empty($educationDetails)) {
             $html .= '<div class="section">
                 <h2>Education</h2>';
-            foreach ($employee->education_details as $edu) {
+            foreach ($educationDetails as $edu) {
                 $edu = (array) $edu;
                 $html .= '<div class="item">
                     <div class="item-title">' . htmlspecialchars($edu['degree'] ?? '') . '</div>
@@ -839,11 +884,11 @@ class EmployerController extends Controller
         }
 
         // Skills
-        if ($employee->skills_details && is_array($employee->skills_details)) {
+        if (!empty($skillsDetails)) {
             $html .= '<div class="section">
                 <h2>Skills</h2>
                 <div class="skills">';
-            foreach ($employee->skills_details as $skill) {
+            foreach ($skillsDetails as $skill) {
                 $html .= '<span class="skill-tag">' . htmlspecialchars($skill) . '</span>';
             }
             $html .= '</div>

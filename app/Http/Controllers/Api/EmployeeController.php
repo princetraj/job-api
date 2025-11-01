@@ -13,6 +13,10 @@ use App\Models\EmployeePlanSubscription;
 use App\Models\EmployeeContactView;
 use App\Models\Employer;
 use App\Models\Skill;
+use App\Models\Degree;
+use App\Models\University;
+use App\Models\FieldOfStudy;
+use App\Models\EmployeeEducation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Storage;
@@ -27,10 +31,30 @@ class EmployeeController extends Controller
      */
     public function getProfile(Request $request)
     {
-        $employee = $request->user()->load(['plan.features', 'skills']);
+        $employee = $request->user()->load([
+            'plan.features',
+            'skills',
+            'educations.degree',
+            'educations.university',
+            'educations.fieldOfStudy',
+            'educations.educationLevel'
+        ]);
 
         // Convert skills relationship to array of skill names for compatibility
         $employee->skills_details = $employee->skills->pluck('name')->toArray();
+
+        // Convert educations to array format for frontend compatibility
+        $employee->education_details = $employee->educations->map(function($edu) {
+            return [
+                'education_level_id' => $edu->education_level_id,
+                'education_level' => $edu->educationLevel ? $edu->educationLevel->name : '',
+                'degree' => $edu->degree ? $edu->degree->name : '',
+                'university' => $edu->university ? $edu->university->name : '',
+                'field' => $edu->fieldOfStudy ? $edu->fieldOfStudy->name : '',
+                'year_start' => $edu->year_start,
+                'year_end' => $edu->year_end,
+            ];
+        })->toArray();
 
         return response()->json([
             'user' => $employee,
@@ -96,6 +120,77 @@ class EmployeeController extends Controller
 
             // Sync all skill IDs (both existing and newly created)
             $employee->skills()->sync($skillIds);
+        }
+        // Handle education_details with normalized table structure
+        elseif ($request->field === 'education_details') {
+            $educationInput = is_array($request->value) ? $request->value : [];
+
+            // Delete existing education records for this employee
+            $employee->educations()->delete();
+
+            // Create new education records
+            foreach ($educationInput as $edu) {
+                if (!is_array($edu)) continue;
+
+                // Get or create degree
+                $degree = null;
+                if (isset($edu['degree']) && !empty(trim($edu['degree']))) {
+                    $degreeName = trim($edu['degree']);
+                    $degree = Degree::firstOrCreate(
+                        ['name' => $degreeName],
+                        [
+                            'approval_status' => 'pending',
+                            'created_by' => $employee->id,
+                            'created_by_type' => 'employee',
+                        ]
+                    );
+                }
+
+                // Get or create university
+                $university = null;
+                if (isset($edu['university']) && !empty(trim($edu['university']))) {
+                    $universityName = trim($edu['university']);
+                    $university = University::firstOrCreate(
+                        ['name' => $universityName],
+                        [
+                            'approval_status' => 'pending',
+                            'created_by' => $employee->id,
+                            'created_by_type' => 'employee',
+                        ]
+                    );
+                }
+
+                // Get or create field of study
+                $fieldOfStudy = null;
+                if (isset($edu['field']) && !empty(trim($edu['field']))) {
+                    $fieldName = trim($edu['field']);
+                    $fieldOfStudy = FieldOfStudy::firstOrCreate(
+                        ['name' => $fieldName],
+                        [
+                            'approval_status' => 'pending',
+                            'created_by' => $employee->id,
+                            'created_by_type' => 'employee',
+                        ]
+                    );
+                }
+
+                // Get education level ID (convert empty string to null)
+                $educationLevelId = null;
+                if (isset($edu['education_level_id']) && $edu['education_level_id'] !== '' && $edu['education_level_id'] !== null) {
+                    $educationLevelId = (int) $edu['education_level_id'];
+                }
+
+                // Create education record with foreign keys
+                EmployeeEducation::create([
+                    'employee_id' => $employee->id,
+                    'education_level_id' => $educationLevelId,
+                    'degree_id' => $degree ? $degree->id : null,
+                    'university_id' => $university ? $university->id : null,
+                    'field_of_study_id' => $fieldOfStudy ? $fieldOfStudy->id : null,
+                    'year_start' => $edu['year_start'] ?? '',
+                    'year_end' => $edu['year_end'] ?? '',
+                ]);
+            }
         } else {
             $employee->update([
                 $request->field => $request->value,
@@ -532,7 +627,19 @@ class EmployeeController extends Controller
      */
     public function generateCV(Request $request)
     {
-        $employee = $request->user()->load('plan');
+        $employee = $request->user()->load('plan', 'educations.degree', 'educations.university', 'educations.fieldOfStudy', 'educations.educationLevel', 'skills');
+
+        // Convert educations from normalized table to array format
+        $educationData = $employee->educations->map(function($edu) {
+            return [
+                'education_level' => $edu->educationLevel ? $edu->educationLevel->name : '',
+                'degree' => $edu->degree ? $edu->degree->name : '',
+                'university' => $edu->university ? $edu->university->name : '',
+                'field' => $edu->fieldOfStudy ? $edu->fieldOfStudy->name : '',
+                'year_start' => $edu->year_start,
+                'year_end' => $edu->year_end,
+            ];
+        })->toArray();
 
         // Generate CV data from profile
         $cvData = [
@@ -542,9 +649,9 @@ class EmployeeController extends Controller
             'gender' => $employee->gender,
             'dob' => $employee->dob,
             'address' => $employee->address,
-            'education' => $employee->education_details,
+            'education' => $educationData,
             'experience' => $employee->experience_details,
-            'skills' => $employee->skills_details,
+            'skills' => $employee->skills->pluck('name')->toArray(),
             'generated_at' => now(),
         ];
 
@@ -852,7 +959,7 @@ class EmployeeController extends Controller
             );
         } else {
             // For created CVs, generate PDF from profile data
-            $employee->load(['plan']);
+            $employee->load(['plan', 'educations.degree', 'educations.university', 'educations.fieldOfStudy', 'educations.educationLevel', 'skills']);
 
             // Generate HTML content for CV
             $html = $this->generateCVHtml($employee, $cv->title);
@@ -871,6 +978,21 @@ class EmployeeController extends Controller
      */
     private function generateCVHtml($employee, $title)
     {
+        // Convert educations from normalized table to array format for template
+        $educationDetails = $employee->educations->map(function($edu) {
+            return [
+                'education_level' => $edu->educationLevel ? $edu->educationLevel->name : '',
+                'degree' => $edu->degree ? $edu->degree->name : '',
+                'university' => $edu->university ? $edu->university->name : '',
+                'field' => $edu->fieldOfStudy ? $edu->fieldOfStudy->name : '',
+                'year_start' => $edu->year_start,
+                'year_end' => $edu->year_end,
+            ];
+        })->toArray();
+
+        // Convert skills from relationship to array for template
+        $skillsDetails = $employee->skills->pluck('name')->toArray();
+
         // Get profile photo if approved
         $profilePhotoBase64 = null;
         if ($employee->profile_photo_status === 'approved' && $employee->profile_photo_url) {
@@ -944,10 +1066,10 @@ class EmployeeController extends Controller
         }
 
         // Education
-        if ($employee->education_details && is_array($employee->education_details)) {
+        if (!empty($educationDetails)) {
             $html .= '<div class="section">
                 <h2>Education</h2>';
-            foreach ($employee->education_details as $edu) {
+            foreach ($educationDetails as $edu) {
                 $edu = (array) $edu;
                 $html .= '<div class="item">
                     <div class="item-title">' . htmlspecialchars($edu['degree'] ?? '') . '</div>
@@ -979,11 +1101,11 @@ class EmployeeController extends Controller
         }
 
         // Skills
-        if ($employee->skills_details && is_array($employee->skills_details)) {
+        if (!empty($skillsDetails)) {
             $html .= '<div class="section">
                 <h2>Skills</h2>
                 <div class="skills">';
-            foreach ($employee->skills_details as $skill) {
+            foreach ($skillsDetails as $skill) {
                 $html .= '<span class="skill-tag">' . htmlspecialchars($skill) . '</span>';
             }
             $html .= '</div>
