@@ -17,6 +17,8 @@ use App\Models\Degree;
 use App\Models\University;
 use App\Models\FieldOfStudy;
 use App\Models\EmployeeEducation;
+use App\Models\Company;
+use App\Models\JobTitle;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Storage;
@@ -191,6 +193,46 @@ class EmployeeController extends Controller
                     'year_end' => $edu['year_end'] ?? '',
                 ]);
             }
+        }
+        // Handle experience_details to create Company and JobTitle records
+        elseif ($request->field === 'experience_details') {
+            $experienceInput = is_array($request->value) ? $request->value : [];
+
+            // Process each experience to create Company and JobTitle records if they don't exist
+            foreach ($experienceInput as &$exp) {
+                if (!is_array($exp)) continue;
+
+                // Get or create company
+                if (isset($exp['company']) && !empty(trim($exp['company']))) {
+                    $companyName = trim($exp['company']);
+                    $company = Company::firstOrCreate(
+                        ['name' => $companyName],
+                        [
+                            'approval_status' => 'pending',
+                            'created_by' => $employee->id,
+                            'created_by_type' => 'employee',
+                        ]
+                    );
+                }
+
+                // Get or create job title
+                if (isset($exp['title']) && !empty(trim($exp['title']))) {
+                    $titleName = trim($exp['title']);
+                    $jobTitle = JobTitle::firstOrCreate(
+                        ['name' => $titleName],
+                        [
+                            'approval_status' => 'pending',
+                            'created_by' => $employee->id,
+                            'created_by_type' => 'employee',
+                        ]
+                    );
+                }
+            }
+
+            // Store the experience_details as JSON in employee table
+            $employee->update([
+                'experience_details' => $experienceInput,
+            ]);
         } else {
             $employee->update([
                 $request->field => $request->value,

@@ -17,7 +17,7 @@ class CreateCompaniesTable extends Migration
             $table->id();
             $table->string('name')->unique();
             $table->enum('approval_status', ['pending', 'approved', 'rejected'])->default('pending');
-            $table->unsignedBigInteger('created_by')->nullable();
+            $table->uuid('created_by')->nullable();
             $table->string('created_by_type')->nullable(); // 'admin' or 'employee'
             $table->text('rejection_reason')->nullable();
             $table->timestamps();

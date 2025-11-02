@@ -11,6 +11,8 @@ use App\Models\Degree;
 use App\Models\University;
 use App\Models\FieldOfStudy;
 use App\Models\EducationLevel;
+use App\Models\Company;
+use App\Models\JobTitle;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -983,5 +985,313 @@ class CatalogController extends Controller
         $educationLevel->delete();
 
         return response()->json(['message' => 'Education level deleted'], 200);
+    }
+
+    // ================= COMPANIES =================
+
+    /**
+     * Get all companies (approved only for public, all for admins)
+     */
+    public function getCompanies(Request $request)
+    {
+        $user = $request->user();
+        $isAdmin = false;
+        if ($user) {
+            $isAdmin = $user instanceof \App\Models\Admin ||
+                       get_class($user) === 'App\Models\Admin' ||
+                       (method_exists($user, 'getTable') && $user->getTable() === 'admins');
+        }
+
+        if ($isAdmin && $request->has('status')) {
+            $status = $request->status;
+            if (in_array($status, ['approved', 'pending', 'rejected'])) {
+                $companies = Company::where('approval_status', $status)->orderBy('created_at', 'desc')->get();
+            } else {
+                $companies = Company::orderBy('created_at', 'desc')->get();
+            }
+        } elseif ($isAdmin) {
+            $companies = Company::orderBy('created_at', 'desc')->get();
+        } else {
+            $companies = Company::approved()->orderBy('name', 'asc')->get();
+        }
+
+        return response()->json(['companies' => $companies], 200);
+    }
+
+    /**
+     * Create company (Admin: Catalog Manager / Super Admin)
+     */
+    public function createCompany(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|max:255|unique:companies,name',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $admin = $request->user();
+
+        $company = Company::create([
+            'name' => $request->name,
+            'approval_status' => 'approved',
+            'created_by' => $admin ? $admin->id : null,
+            'created_by_type' => 'admin',
+        ]);
+
+        return response()->json([
+            'message' => 'Company created',
+            'company' => $company,
+        ], 201);
+    }
+
+    /**
+     * Update company (Admin: Catalog Manager / Super Admin)
+     */
+    public function updateCompany(Request $request, $id)
+    {
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|max:255|unique:companies,name,' . $id,
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $company = Company::find($id);
+
+        if (!$company) {
+            return response()->json(['message' => 'Company not found'], 404);
+        }
+
+        $company->update(['name' => $request->name]);
+
+        return response()->json([
+            'message' => 'Company updated',
+            'company' => $company,
+        ], 200);
+    }
+
+    /**
+     * Delete company (Admin: Super Admin)
+     */
+    public function deleteCompany(Request $request, $id)
+    {
+        $company = Company::find($id);
+
+        if (!$company) {
+            return response()->json(['message' => 'Company not found'], 404);
+        }
+
+        $company->delete();
+
+        return response()->json(['message' => 'Company deleted'], 200);
+    }
+
+    /**
+     * Approve company (Admin)
+     */
+    public function approveCompany(Request $request, $id)
+    {
+        $company = Company::find($id);
+
+        if (!$company) {
+            return response()->json(['message' => 'Company not found'], 404);
+        }
+
+        $company->update([
+            'approval_status' => 'approved',
+            'rejection_reason' => null,
+        ]);
+
+        return response()->json([
+            'message' => 'Company approved successfully',
+            'company' => $company,
+        ], 200);
+    }
+
+    /**
+     * Reject company (Admin)
+     */
+    public function rejectCompany(Request $request, $id)
+    {
+        $validator = Validator::make($request->all(), [
+            'rejection_reason' => 'nullable|string|max:500',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $company = Company::find($id);
+
+        if (!$company) {
+            return response()->json(['message' => 'Company not found'], 404);
+        }
+
+        $company->update([
+            'approval_status' => 'rejected',
+            'rejection_reason' => $request->rejection_reason,
+        ]);
+
+        return response()->json([
+            'message' => 'Company rejected',
+            'company' => $company,
+        ], 200);
+    }
+
+    // ================= JOB TITLES =================
+
+    /**
+     * Get all job titles (approved only for public, all for admins)
+     */
+    public function getJobTitles(Request $request)
+    {
+        $user = $request->user();
+        $isAdmin = false;
+        if ($user) {
+            $isAdmin = $user instanceof \App\Models\Admin ||
+                       get_class($user) === 'App\Models\Admin' ||
+                       (method_exists($user, 'getTable') && $user->getTable() === 'admins');
+        }
+
+        if ($isAdmin && $request->has('status')) {
+            $status = $request->status;
+            if (in_array($status, ['approved', 'pending', 'rejected'])) {
+                $jobTitles = JobTitle::where('approval_status', $status)->orderBy('created_at', 'desc')->get();
+            } else {
+                $jobTitles = JobTitle::orderBy('created_at', 'desc')->get();
+            }
+        } elseif ($isAdmin) {
+            $jobTitles = JobTitle::orderBy('created_at', 'desc')->get();
+        } else {
+            $jobTitles = JobTitle::approved()->orderBy('name', 'asc')->get();
+        }
+
+        return response()->json(['job_titles' => $jobTitles], 200);
+    }
+
+    /**
+     * Create job title (Admin: Catalog Manager / Super Admin)
+     */
+    public function createJobTitle(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|max:255|unique:job_titles,name',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $admin = $request->user();
+
+        $jobTitle = JobTitle::create([
+            'name' => $request->name,
+            'approval_status' => 'approved',
+            'created_by' => $admin ? $admin->id : null,
+            'created_by_type' => 'admin',
+        ]);
+
+        return response()->json([
+            'message' => 'Job title created',
+            'job_title' => $jobTitle,
+        ], 201);
+    }
+
+    /**
+     * Update job title (Admin: Catalog Manager / Super Admin)
+     */
+    public function updateJobTitle(Request $request, $id)
+    {
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|max:255|unique:job_titles,name,' . $id,
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $jobTitle = JobTitle::find($id);
+
+        if (!$jobTitle) {
+            return response()->json(['message' => 'Job title not found'], 404);
+        }
+
+        $jobTitle->update(['name' => $request->name]);
+
+        return response()->json([
+            'message' => 'Job title updated',
+            'job_title' => $jobTitle,
+        ], 200);
+    }
+
+    /**
+     * Delete job title (Admin: Super Admin)
+     */
+    public function deleteJobTitle(Request $request, $id)
+    {
+        $jobTitle = JobTitle::find($id);
+
+        if (!$jobTitle) {
+            return response()->json(['message' => 'Job title not found'], 404);
+        }
+
+        $jobTitle->delete();
+
+        return response()->json(['message' => 'Job title deleted'], 200);
+    }
+
+    /**
+     * Approve job title (Admin)
+     */
+    public function approveJobTitle(Request $request, $id)
+    {
+        $jobTitle = JobTitle::find($id);
+
+        if (!$jobTitle) {
+            return response()->json(['message' => 'Job title not found'], 404);
+        }
+
+        $jobTitle->update([
+            'approval_status' => 'approved',
+            'rejection_reason' => null,
+        ]);
+
+        return response()->json([
+            'message' => 'Job title approved successfully',
+            'job_title' => $jobTitle,
+        ], 200);
+    }
+
+    /**
+     * Reject job title (Admin)
+     */
+    public function rejectJobTitle(Request $request, $id)
+    {
+        $validator = Validator::make($request->all(), [
+            'rejection_reason' => 'nullable|string|max:500',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $jobTitle = JobTitle::find($id);
+
+        if (!$jobTitle) {
+            return response()->json(['message' => 'Job title not found'], 404);
+        }
+
+        $jobTitle->update([
+            'approval_status' => 'rejected',
+            'rejection_reason' => $request->rejection_reason,
+        ]);
+
+        return response()->json([
+            'message' => 'Job title rejected',
+            'job_title' => $jobTitle,
+        ], 200);
     }
 }

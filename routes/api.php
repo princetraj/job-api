@@ -260,6 +260,22 @@ Route::prefix('v1/catalogs')->group(function () {
     Route::post('/education-levels', [CatalogController::class, 'createEducationLevel'])->middleware('auth:sanctum');
     Route::put('/education-levels/{id}', [CatalogController::class, 'updateEducationLevel'])->middleware('auth:sanctum');
     Route::delete('/education-levels/{id}', [CatalogController::class, 'deleteEducationLevel'])->middleware('auth:sanctum');
+
+    // Companies
+    Route::get('/companies', [CatalogController::class, 'getCompanies'])->middleware('auth.optional');
+    Route::post('/companies', [CatalogController::class, 'createCompany'])->middleware('auth:sanctum');
+    Route::put('/companies/{id}', [CatalogController::class, 'updateCompany'])->middleware('auth:sanctum');
+    Route::put('/companies/{id}/approve', [CatalogController::class, 'approveCompany'])->middleware('auth:sanctum');
+    Route::put('/companies/{id}/reject', [CatalogController::class, 'rejectCompany'])->middleware('auth:sanctum');
+    Route::delete('/companies/{id}', [CatalogController::class, 'deleteCompany'])->middleware('auth:sanctum');
+
+    // Job Titles
+    Route::get('/job-titles', [CatalogController::class, 'getJobTitles'])->middleware('auth.optional');
+    Route::post('/job-titles', [CatalogController::class, 'createJobTitle'])->middleware('auth:sanctum');
+    Route::put('/job-titles/{id}', [CatalogController::class, 'updateJobTitle'])->middleware('auth:sanctum');
+    Route::put('/job-titles/{id}/approve', [CatalogController::class, 'approveJobTitle'])->middleware('auth:sanctum');
+    Route::put('/job-titles/{id}/reject', [CatalogController::class, 'rejectJobTitle'])->middleware('auth:sanctum');
+    Route::delete('/job-titles/{id}', [CatalogController::class, 'deleteJobTitle'])->middleware('auth:sanctum');
 });
 
 // Payment & Subscription Routes
