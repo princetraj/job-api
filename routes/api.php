@@ -100,6 +100,9 @@ Route::prefix('v1/employer')->middleware('auth:sanctum')->group(function () {
     Route::post('/applications/{appId}/view-contact', [EmployerController::class, 'viewApplicationContactDetails']);
     Route::get('/employees/{employeeId}/cv/download', [EmployerController::class, 'downloadEmployeeCV']);
 
+    // Employee Search
+    Route::get('/employees/search', [EmployerController::class, 'searchEmployees']);
+
     // Plan Management
     Route::get('/plan/current', [EmployerController::class, 'getCurrentPlan']);
     Route::get('/plan/available', [EmployerController::class, 'getAvailablePlans']);

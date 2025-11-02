@@ -903,6 +903,121 @@ class EmployerController extends Controller
     }
 
     /**
+     * Search employees with filters
+     */
+    public function searchEmployees(Request $request)
+    {
+        $query = \App\Models\Employee::query();
+
+        // Search by name or email
+        if ($request->has('q') && $request->q) {
+            $query->where(function($q) use ($request) {
+                $q->where('name', 'LIKE', '%' . $request->q . '%')
+                  ->orWhere('email', 'LIKE', '%' . $request->q . '%');
+            });
+        }
+
+        // Filter by education level
+        if ($request->has('education_level_id') && $request->education_level_id) {
+            $query->whereHas('educations', function($q) use ($request) {
+                $q->where('education_level_id', $request->education_level_id);
+            });
+        }
+
+        // Filter by degree
+        if ($request->has('degree_id') && $request->degree_id) {
+            $query->whereHas('educations', function($q) use ($request) {
+                $q->where('degree_id', $request->degree_id);
+            });
+        }
+
+        // Filter by university
+        if ($request->has('university_id') && $request->university_id) {
+            $query->whereHas('educations', function($q) use ($request) {
+                $q->where('university_id', $request->university_id);
+            });
+        }
+
+        // Filter by field of study
+        if ($request->has('field_of_study_id') && $request->field_of_study_id) {
+            $query->whereHas('educations', function($q) use ($request) {
+                $q->where('field_of_study_id', $request->field_of_study_id);
+            });
+        }
+
+        // Filter by skills (can be multiple)
+        if ($request->has('skill_ids') && is_array($request->skill_ids) && count($request->skill_ids) > 0) {
+            $query->whereHas('skills', function($q) use ($request) {
+                $q->whereIn('skills.id', $request->skill_ids);
+            }, '>=', count($request->skill_ids)); // Employee must have all selected skills
+        }
+
+        // Load relationships
+        $query->with([
+            'educations.degree',
+            'educations.university',
+            'educations.fieldOfStudy',
+            'educations.educationLevel',
+            'skills'
+        ]);
+
+        // Only show employees with approved profile photos publicly
+        $query->where(function($q) {
+            $q->where('profile_photo_status', 'approved')
+              ->orWhereNull('profile_photo_status');
+        });
+
+        // Paginate results
+        $perPage = $request->input('limit', 10);
+        $employees = $query->paginate($perPage);
+
+        // Format employee data
+        $formattedEmployees = collect($employees->items())->map(function($employee) {
+            // Convert educations from normalized table to array format
+            $educationDetails = $employee->educations->map(function($edu) {
+                return [
+                    'education_level' => $edu->educationLevel ? $edu->educationLevel->name : '',
+                    'degree' => $edu->degree ? $edu->degree->name : '',
+                    'university' => $edu->university ? $edu->university->name : '',
+                    'field' => $edu->fieldOfStudy ? $edu->fieldOfStudy->name : '',
+                    'year_start' => $edu->year_start,
+                    'year_end' => $edu->year_end,
+                ];
+            })->toArray();
+
+            // Convert skills from relationship to array
+            $skillsDetails = $employee->skills->pluck('name')->toArray();
+
+            return [
+                'id' => $employee->id,
+                'name' => $employee->name,
+                'email' => $employee->email,
+                'mobile' => $employee->mobile,
+                'gender' => $employee->gender,
+                'dob' => $employee->dob,
+                'description' => $employee->description,
+                'address' => $employee->address,
+                'education_details' => $educationDetails,
+                'experience_details' => $employee->experience_details,
+                'skills_details' => $skillsDetails,
+                'cv_url' => $employee->cv_url,
+                'public_profile_photo_url' => $employee->profile_photo_status === 'approved' ? $employee->profile_photo_url : null,
+                'created_at' => $employee->created_at,
+            ];
+        });
+
+        return response()->json([
+            'employees' => [
+                'current_page' => $employees->currentPage(),
+                'data' => $formattedEmployees,
+                'total' => $employees->total(),
+                'per_page' => $employees->perPage(),
+                'last_page' => $employees->lastPage(),
+            ],
+        ], 200);
+    }
+
+    /**
      * View employee contact details from application (with plan limit check)
      */
     public function viewApplicationContactDetails(Request $request, $appId)
