@@ -33,6 +33,7 @@ class Employee extends Authenticatable
         'name',
         'gender',
         'dob',
+        'description',
         'address',
         'experience_details',
         'skills_details',

@@ -80,7 +80,7 @@ class EmployeeController extends Controller
 
         $employee = $request->user();
 
-        $allowedFields = ['address', 'education_details', 'experience_details', 'skills_details', 'cv_url'];
+        $allowedFields = ['description', 'address', 'education_details', 'experience_details', 'skills_details', 'cv_url'];
 
         if (!in_array($request->field, $allowedFields)) {
             return response()->json(['message' => 'Field not allowed for update'], 400);
@@ -690,6 +690,7 @@ class EmployeeController extends Controller
             'mobile' => $employee->mobile,
             'gender' => $employee->gender,
             'dob' => $employee->dob,
+            'description' => $employee->description,
             'address' => $employee->address,
             'education' => $educationData,
             'experience' => $employee->experience_details,
@@ -1088,6 +1089,14 @@ class EmployeeController extends Controller
         ' . ($employee->gender ? '<p><strong>Gender:</strong> ' . htmlspecialchars($employee->gender) . '</p>' : '') . '
         ' . ($employee->dob ? '<p><strong>Date of Birth:</strong> ' . htmlspecialchars($employee->dob) . '</p>' : '') . '
     </div>';
+
+        // Description/About Me
+        if ($employee->description) {
+            $html .= '<div class="section">
+                <h2>About Me</h2>
+                <p>' . nl2br(htmlspecialchars($employee->description)) . '</p>
+            </div>';
+        }
 
         // Address
         if ($employee->address) {
