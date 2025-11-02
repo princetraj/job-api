@@ -29,6 +29,7 @@ class Employer extends Authenticatable
     protected $fillable = [
         'company_name',
         'email',
+        'account_status',
         'contact',
         'address',
         'industry_type',

@@ -19,6 +19,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Carbon\Carbon;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 class AdminController extends Controller
 {
@@ -66,7 +68,37 @@ class AdminController extends Controller
     {
         $this->authorizeRole($request, ['super_admin', 'manager']);
 
-        $employees = Employee::with('plan.features')->paginate(50);
+        $query = Employee::with('plan.features');
+
+        // Search by name, email, or mobile
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function($q) use ($search) {
+                $q->where('name', 'LIKE', "%{$search}%")
+                  ->orWhere('email', 'LIKE', "%{$search}%")
+                  ->orWhere('mobile', 'LIKE', "%{$search}%");
+            });
+        }
+
+        // Filter by date range (created_at)
+        if ($request->filled('date_from')) {
+            $query->whereDate('created_at', '>=', $request->date_from);
+        }
+        if ($request->filled('date_to')) {
+            $query->whereDate('created_at', '<=', $request->date_to);
+        }
+
+        // Filter by plan_id
+        if ($request->filled('plan_id')) {
+            $query->where('plan_id', $request->plan_id);
+        }
+
+        // Filter by account_status
+        if ($request->filled('account_status')) {
+            $query->where('account_status', $request->account_status);
+        }
+
+        $employees = $query->paginate($request->input('per_page', 20));
 
         return response()->json(['employees' => $employees], 200);
     }
@@ -124,13 +156,168 @@ class AdminController extends Controller
     }
 
     /**
+     * Approve employee account
+     */
+    public function approveEmployee(Request $request, $id)
+    {
+        $this->authorizeRole($request, ['super_admin', 'manager']);
+
+        $employee = Employee::find($id);
+
+        if (!$employee) {
+            return response()->json(['message' => 'Employee not found'], 404);
+        }
+
+        $employee->update(['account_status' => 'approved']);
+
+        return response()->json(['message' => 'Employee approved successfully'], 200);
+    }
+
+    /**
+     * Export employees to Excel
+     */
+    public function exportEmployees(Request $request)
+    {
+        $this->authorizeRole($request, ['super_admin', 'manager']);
+
+        $query = Employee::with('plan');
+
+        // Apply same filters as getEmployees
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function($q) use ($search) {
+                $q->where('name', 'LIKE', "%{$search}%")
+                  ->orWhere('email', 'LIKE', "%{$search}%")
+                  ->orWhere('mobile', 'LIKE', "%{$search}%");
+            });
+        }
+
+        if ($request->filled('date_from')) {
+            $query->whereDate('created_at', '>=', $request->date_from);
+        }
+        if ($request->filled('date_to')) {
+            $query->whereDate('created_at', '<=', $request->date_to);
+        }
+
+        if ($request->filled('plan_id')) {
+            $query->where('plan_id', $request->plan_id);
+        }
+
+        if ($request->filled('account_status')) {
+            $query->where('account_status', $request->account_status);
+        }
+
+        $employees = $query->get();
+
+        // Create spreadsheet
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+
+        // Set headers
+        $sheet->setCellValue('A1', 'ID');
+        $sheet->setCellValue('B1', 'Name');
+        $sheet->setCellValue('C1', 'Email');
+        $sheet->setCellValue('D1', 'Mobile');
+        $sheet->setCellValue('E1', 'Gender');
+        $sheet->setCellValue('F1', 'DOB');
+        $sheet->setCellValue('G1', 'Plan');
+        $sheet->setCellValue('H1', 'Plan Status');
+        $sheet->setCellValue('I1', 'Plan Expires');
+        $sheet->setCellValue('J1', 'Account Status');
+        $sheet->setCellValue('K1', 'Joined Date');
+
+        // Style headers
+        $headerStyle = [
+            'font' => ['bold' => true],
+            'fill' => [
+                'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                'startColor' => ['rgb' => 'E0E0E0']
+            ]
+        ];
+        $sheet->getStyle('A1:K1')->applyFromArray($headerStyle);
+
+        // Add data
+        $row = 2;
+        foreach ($employees as $employee) {
+            $sheet->setCellValue('A' . $row, $employee->id);
+            $sheet->setCellValue('B' . $row, $employee->name);
+            $sheet->setCellValue('C' . $row, $employee->email);
+            $sheet->setCellValue('D' . $row, $employee->mobile);
+            $sheet->setCellValue('E' . $row, $employee->gender);
+            $sheet->setCellValue('F' . $row, $employee->dob);
+            $sheet->setCellValue('G' . $row, $employee->plan ? $employee->plan->name : 'No Plan');
+
+            // Plan status
+            $planStatus = 'Inactive';
+            if ($employee->plan_is_active) {
+                if ($employee->plan_expires_at && Carbon::parse($employee->plan_expires_at)->isPast()) {
+                    $planStatus = 'Expired';
+                } else {
+                    $planStatus = 'Active';
+                }
+            }
+            $sheet->setCellValue('H' . $row, $planStatus);
+
+            $sheet->setCellValue('I' . $row, $employee->plan_expires_at ? Carbon::parse($employee->plan_expires_at)->format('Y-m-d') : 'Never');
+            $sheet->setCellValue('J' . $row, ucfirst($employee->account_status ?? 'pending'));
+            $sheet->setCellValue('K' . $row, Carbon::parse($employee->created_at)->format('Y-m-d'));
+
+            $row++;
+        }
+
+        // Auto-size columns
+        foreach (range('A', 'K') as $col) {
+            $sheet->getColumnDimension($col)->setAutoSize(true);
+        }
+
+        // Create writer and download
+        $writer = new Xlsx($spreadsheet);
+        $filename = 'employees_' . date('Y-m-d_His') . '.xlsx';
+        $tempFile = tempnam(sys_get_temp_dir(), $filename);
+
+        $writer->save($tempFile);
+
+        return response()->download($tempFile, $filename)->deleteFileAfterSend(true);
+    }
+
+    /**
      * Get all employers (Employer Manager / Super Admin)
      */
     public function getEmployers(Request $request)
     {
         $this->authorizeRole($request, ['super_admin', 'manager']);
 
-        $employers = Employer::with('plan.features', 'industry')->paginate(50);
+        $query = Employer::with('plan.features', 'industry');
+
+        // Search by company_name, email, or contact
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function($q) use ($search) {
+                $q->where('company_name', 'LIKE', "%{$search}%")
+                  ->orWhere('email', 'LIKE', "%{$search}%")
+                  ->orWhere('contact', 'LIKE', "%{$search}%");
+            });
+        }
+
+        // Filter by date range (created_at)
+        if ($request->filled('date_from')) {
+            $query->whereDate('created_at', '>=', $request->date_from);
+        }
+        if ($request->filled('date_to')) {
+            $query->whereDate('created_at', '<=', $request->date_to);
+        }
+
+        // Filter by plan_id
+        if ($request->filled('plan_id')) {
+            $query->where('plan_id', $request->plan_id);
+        }
+
+        // Filter by account_status
+        if ($request->filled('account_status')) {
+            $query->where('account_status', $request->account_status);
+        }
+
+        $employers = $query->paginate($request->input('per_page', 20));
 
         return response()->json(['employers' => $employers], 200);
     }
@@ -185,6 +372,131 @@ class AdminController extends Controller
         $employer->delete();
 
         return response()->json(['message' => 'Employer deleted'], 200);
+    }
+
+    /**
+     * Approve employer account
+     */
+    public function approveEmployer(Request $request, $id)
+    {
+        $this->authorizeRole($request, ['super_admin', 'manager']);
+
+        $employer = Employer::find($id);
+
+        if (!$employer) {
+            return response()->json(['message' => 'Employer not found'], 404);
+        }
+
+        $employer->update(['account_status' => 'approved']);
+
+        return response()->json(['message' => 'Employer approved successfully'], 200);
+    }
+
+    /**
+     * Export employers to Excel
+     */
+    public function exportEmployers(Request $request)
+    {
+        $this->authorizeRole($request, ['super_admin', 'manager']);
+
+        $query = Employer::with('plan', 'industry');
+
+        // Apply same filters as getEmployers
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function($q) use ($search) {
+                $q->where('company_name', 'LIKE', "%{$search}%")
+                  ->orWhere('email', 'LIKE', "%{$search}%")
+                  ->orWhere('contact', 'LIKE', "%{$search}%");
+            });
+        }
+
+        if ($request->filled('date_from')) {
+            $query->whereDate('created_at', '>=', $request->date_from);
+        }
+        if ($request->filled('date_to')) {
+            $query->whereDate('created_at', '<=', $request->date_to);
+        }
+
+        if ($request->filled('plan_id')) {
+            $query->where('plan_id', $request->plan_id);
+        }
+
+        if ($request->filled('account_status')) {
+            $query->where('account_status', $request->account_status);
+        }
+
+        $employers = $query->get();
+
+        // Create spreadsheet
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+
+        // Set headers
+        $sheet->setCellValue('A1', 'ID');
+        $sheet->setCellValue('B1', 'Company Name');
+        $sheet->setCellValue('C1', 'Email');
+        $sheet->setCellValue('D1', 'Contact');
+        $sheet->setCellValue('E1', 'Industry');
+        $sheet->setCellValue('F1', 'Website');
+        $sheet->setCellValue('G1', 'Plan');
+        $sheet->setCellValue('H1', 'Plan Status');
+        $sheet->setCellValue('I1', 'Plan Expires');
+        $sheet->setCellValue('J1', 'Account Status');
+        $sheet->setCellValue('K1', 'Joined Date');
+
+        // Style headers
+        $headerStyle = [
+            'font' => ['bold' => true],
+            'fill' => [
+                'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                'startColor' => ['rgb' => 'E0E0E0']
+            ]
+        ];
+        $sheet->getStyle('A1:K1')->applyFromArray($headerStyle);
+
+        // Add data
+        $row = 2;
+        foreach ($employers as $employer) {
+            $sheet->setCellValue('A' . $row, $employer->id);
+            $sheet->setCellValue('B' . $row, $employer->company_name);
+            $sheet->setCellValue('C' . $row, $employer->email);
+            $sheet->setCellValue('D' . $row, $employer->contact);
+            $sheet->setCellValue('E' . $row, $employer->industry ? $employer->industry->name : 'N/A');
+            $sheet->setCellValue('F' . $row, $employer->website ?? 'N/A');
+            $sheet->setCellValue('G' . $row, $employer->plan ? $employer->plan->name : 'No Plan');
+
+            // Plan status
+            $planStatus = 'Inactive';
+            if ($employer->plan_is_active) {
+                if ($employer->plan_expires_at && Carbon::parse($employer->plan_expires_at)->isPast()) {
+                    $planStatus = 'Expired';
+                } else {
+                    $planStatus = 'Active';
+                }
+            }
+            $sheet->setCellValue('H' . $row, $planStatus);
+
+            $sheet->setCellValue('I' . $row, $employer->plan_expires_at ? Carbon::parse($employer->plan_expires_at)->format('Y-m-d') : 'Never');
+            $sheet->setCellValue('J' . $row, ucfirst($employer->account_status ?? 'pending'));
+            $sheet->setCellValue('K' . $row, Carbon::parse($employer->created_at)->format('Y-m-d'));
+
+            $row++;
+        }
+
+        // Auto-size columns
+        foreach (range('A', 'K') as $col) {
+            $sheet->getColumnDimension($col)->setAutoSize(true);
+        }
+
+        // Create writer and download
+        $writer = new Xlsx($spreadsheet);
+        $filename = 'employers_' . date('Y-m-d_His') . '.xlsx';
+        $tempFile = tempnam(sys_get_temp_dir(), $filename);
+
+        $writer->save($tempFile);
+
+        return response()->download($tempFile, $filename)->deleteFileAfterSend(true);
     }
 
     /**
