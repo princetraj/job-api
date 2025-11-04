@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 
 class CVRequest extends Model
 {
@@ -11,12 +12,26 @@ class CVRequest extends Model
 
     protected $table = 'cv_requests';
 
+    protected static function boot()
+    {
+        parent::boot();
+
+        static::creating(function ($model) {
+            if (empty($model->id)) {
+                $model->id = (string) Str::uuid();
+            }
+        });
+    }
+
     protected $fillable = [
         'id',
         'employee_id',
         'notes',
         'preferred_template',
         'status',
+        'price',
+        'payment_status',
+        'payment_transaction_id',
         'cv_url',
         'completed_at',
     ];

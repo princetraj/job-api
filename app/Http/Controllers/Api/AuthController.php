@@ -12,6 +12,8 @@ use App\Models\EmployeeEducation;
 use App\Models\Degree;
 use App\Models\University;
 use App\Models\FieldOfStudy;
+use App\Models\Company;
+use App\Models\JobTitle;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
@@ -127,8 +129,50 @@ class AuthController extends Controller
         }
 
         $employee = $request->user();
+
+        // Process experience details and create Company and JobTitle records if they don't exist
+        // Expected fields: company, title, description, year_start, year_end, month_start, month_end
+        $experienceInput = is_array($request->experience) ? $request->experience : [];
+        foreach ($experienceInput as &$exp) {
+            if (!is_array($exp)) continue;
+
+            // Validate month fields if provided (1-12)
+            if (isset($exp['month_start'])) {
+                $exp['month_start'] = max(1, min(12, (int)$exp['month_start']));
+            }
+            if (isset($exp['month_end'])) {
+                $exp['month_end'] = max(1, min(12, (int)$exp['month_end']));
+            }
+
+            // Get or create company
+            if (isset($exp['company']) && !empty(trim($exp['company']))) {
+                $companyName = trim($exp['company']);
+                $company = Company::firstOrCreate(
+                    ['name' => $companyName],
+                    [
+                        'approval_status' => 'pending',
+                        'created_by' => $employee->id,
+                        'created_by_type' => 'employee',
+                    ]
+                );
+            }
+
+            // Get or create job title
+            if (isset($exp['title']) && !empty(trim($exp['title']))) {
+                $titleName = trim($exp['title']);
+                $jobTitle = JobTitle::firstOrCreate(
+                    ['name' => $titleName],
+                    [
+                        'approval_status' => 'pending',
+                        'created_by' => $employee->id,
+                        'created_by_type' => 'employee',
+                    ]
+                );
+            }
+        }
+
         $employee->update([
-            'experience_details' => $request->experience,
+            'experience_details' => $experienceInput,
         ]);
 
         // Save education to normalized tables

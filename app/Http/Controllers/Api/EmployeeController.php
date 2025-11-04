@@ -195,12 +195,21 @@ class EmployeeController extends Controller
             }
         }
         // Handle experience_details to create Company and JobTitle records
+        // Expected fields: company, title, description, year_start, year_end, month_start, month_end
         elseif ($request->field === 'experience_details') {
             $experienceInput = is_array($request->value) ? $request->value : [];
 
             // Process each experience to create Company and JobTitle records if they don't exist
             foreach ($experienceInput as &$exp) {
                 if (!is_array($exp)) continue;
+
+                // Validate month fields if provided (1-12)
+                if (isset($exp['month_start'])) {
+                    $exp['month_start'] = max(1, min(12, (int)$exp['month_start']));
+                }
+                if (isset($exp['month_end'])) {
+                    $exp['month_end'] = max(1, min(12, (int)$exp['month_end']));
+                }
 
                 // Get or create company
                 if (isset($exp['company']) && !empty(trim($exp['company']))) {
@@ -743,6 +752,7 @@ class EmployeeController extends Controller
         $validator = Validator::make($request->all(), [
             'notes' => 'nullable|string',
             'preferred_template' => 'nullable|string',
+            'price' => 'required|numeric|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -751,22 +761,37 @@ class EmployeeController extends Controller
 
         $employee = $request->user();
 
+        // Check if employee has a pending or in-progress CV request
+        $existingRequest = CVRequest::where('employee_id', $employee->id)
+            ->whereIn('status', ['pending', 'in_progress'])
+            ->first();
+
+        if ($existingRequest) {
+            return response()->json([
+                'message' => 'You already have a pending CV request',
+                'existing_request_id' => $existingRequest->id,
+            ], 400);
+        }
+
         // Create CV request
         $cvRequest = CVRequest::create([
-            'id' => Str::uuid(),
             'employee_id' => $employee->id,
             'notes' => $request->notes,
             'preferred_template' => $request->preferred_template,
             'status' => 'pending',
+            'price' => $request->price,
+            'payment_status' => 'pending',
         ]);
 
-        // TODO: Integrate with professional CV service API
+        // TODO: Integrate with payment gateway
         // TODO: Send notification to admin/CV service provider
 
         return response()->json([
-            'message' => 'Professional CV request submitted',
+            'message' => 'Professional CV request submitted successfully',
             'request_id' => $cvRequest->id,
             'status' => $cvRequest->status,
+            'price' => $cvRequest->price,
+            'payment_status' => $cvRequest->payment_status,
             'estimated_delivery' => now()->addDays(3)->format('Y-m-d'),
         ], 201);
     }

@@ -512,6 +512,16 @@ class EmployerController extends Controller
             $contactViewsRemaining = $employer->plan->employee_contact_details_can_view;
         }
 
+        // Calculate jobs remaining
+        $jobsCanPost = $employer->plan->jobs_can_post;
+        $jobsRemaining = null;
+        if ($jobsCanPost !== -1) {
+            $currentJobCount = Job::where('employer_id', $employer->id)->count();
+            $jobsRemaining = max(0, $jobsCanPost - $currentJobCount);
+        } else {
+            $jobsRemaining = -1; // Unlimited
+        }
+
         $planData = [
             'id' => $employer->plan->id,
             'name' => $employer->plan->name,
@@ -529,6 +539,7 @@ class EmployerController extends Controller
             'employee_contact_details_can_view' => $employer->plan->employee_contact_details_can_view,
             // Subscription remaining limits
             'contact_views_remaining' => $contactViewsRemaining,
+            'jobs_remaining' => $jobsRemaining,
         ];
 
         return response()->json([
