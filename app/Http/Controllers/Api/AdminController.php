@@ -68,7 +68,7 @@ class AdminController extends Controller
     {
         $this->authorizeRole($request, ['super_admin', 'manager']);
 
-        $query = Employee::with('plan.features');
+        $query = Employee::with('plan.features', 'createdByAdmin:id,name,email');
 
         // Search by name, email, or mobile
         if ($request->filled('search')) {
@@ -98,6 +98,9 @@ class AdminController extends Controller
             $query->where('account_status', $request->account_status);
         }
 
+        // Order by latest first
+        $query->orderBy('created_at', 'desc');
+
         $employees = $query->paginate($request->input('per_page', 20));
 
         return response()->json(['employees' => $employees], 200);
@@ -110,13 +113,169 @@ class AdminController extends Controller
     {
         $this->authorizeRole($request, ['super_admin', 'manager']);
 
-        $employee = Employee::with('plan.features', 'jobApplications')->find($id);
+        $employee = Employee::with('plan.features', 'jobApplications', 'createdByAdmin:id,name,email')->find($id);
 
         if (!$employee) {
             return response()->json(['message' => 'Employee not found'], 404);
         }
 
         return response()->json(['employee' => $employee], 200);
+    }
+
+    /**
+     * Create employee (Admin can add employees)
+     */
+    public function createEmployee(Request $request)
+    {
+        $this->authorizeRole($request, ['super_admin', 'manager']);
+
+        $validator = Validator::make($request->all(), [
+            'email' => 'required|email|unique:employees,email',
+            'mobile' => 'required|unique:employees,mobile',
+            'name' => 'required|string|max:255',
+            'password' => 'required|string|min:6',
+            'gender' => 'required|in:M,F,O',
+            'dob' => 'nullable|date',
+            'address' => 'nullable|array',
+            'education' => 'nullable|array',
+            'experience' => 'nullable|array',
+            'skills' => 'nullable|array',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        // Get the default plan for employees
+        $defaultPlan = Plan::getDefaultPlan('employee');
+
+        if (!$defaultPlan) {
+            return response()->json([
+                'message' => 'Default plan not found. Please contact support.',
+            ], 500);
+        }
+
+        // Create the employee
+        $employee = Employee::create([
+            'email' => $request->email,
+            'mobile' => $request->mobile,
+            'name' => $request->name,
+            'password' => $request->password,
+            'gender' => $request->gender,
+            'dob' => $request->dob,
+            'address' => $request->address,
+            'plan_id' => $defaultPlan->id,
+            'plan_started_at' => now(),
+            'plan_expires_at' => $defaultPlan->validity_days > 0 ? now()->addDays($defaultPlan->validity_days) : null,
+            'plan_is_active' => true,
+            'account_status' => 'approved', // Admin-created employees are auto-approved
+            'created_by_admin_id' => $request->user()->id, // Track which admin created this employee
+        ]);
+
+        // Handle education details
+        if ($request->filled('education') && is_array($request->education)) {
+            foreach ($request->education as $edu) {
+                if (!empty($edu['degree']) && !empty($edu['university']) && !empty($edu['field'])) {
+                    $educationData = [
+                        'employee_id' => $employee->id,
+                        'year_start' => $edu['year_start'] ?? null,
+                        'year_end' => $edu['year_end'] ?? null,
+                    ];
+
+                    // Handle degree (create if doesn't exist)
+                    $degree = \App\Models\Degree::where('name', $edu['degree'])->first();
+                    if (!$degree) {
+                        $degree = \App\Models\Degree::create(['name' => $edu['degree'], 'status' => 'approved']);
+                    }
+                    $educationData['degree_id'] = $degree->id;
+
+                    // Handle university (create if doesn't exist)
+                    $university = \App\Models\University::where('name', $edu['university'])->first();
+                    if (!$university) {
+                        $university = \App\Models\University::create(['name' => $edu['university'], 'status' => 'approved']);
+                    }
+                    $educationData['university_id'] = $university->id;
+
+                    // Handle field of study (create if doesn't exist)
+                    $fieldOfStudy = \App\Models\FieldOfStudy::where('name', $edu['field'])->first();
+                    if (!$fieldOfStudy) {
+                        $fieldOfStudy = \App\Models\FieldOfStudy::create(['name' => $edu['field'], 'status' => 'approved']);
+                    }
+                    $educationData['field_of_study_id'] = $fieldOfStudy->id;
+
+                    // Add education level if provided
+                    if (isset($edu['education_level_id'])) {
+                        $educationData['education_level_id'] = $edu['education_level_id'];
+                    }
+
+                    \App\Models\EmployeeEducation::create($educationData);
+                }
+            }
+        }
+
+        // Handle experience details
+        if ($request->filled('experience') && is_array($request->experience)) {
+            $experiences = [];
+            foreach ($request->experience as $exp) {
+                if (!empty($exp['company']) && !empty($exp['title'])) {
+                    $experiences[] = [
+                        'company' => $exp['company'],
+                        'title' => $exp['title'],
+                        'description' => $exp['description'] ?? '',
+                        'year_start' => $exp['year_start'] ?? null,
+                        'year_end' => $exp['year_end'] ?? null,
+                        'month_start' => $exp['month_start'] ?? null,
+                        'month_end' => $exp['month_end'] ?? null,
+                    ];
+                }
+            }
+            if (!empty($experiences)) {
+                $employee->update(['experience_details' => $experiences]);
+            }
+        }
+
+        // Handle skills
+        if ($request->filled('skills') && is_array($request->skills)) {
+            $skillIds = [];
+            $customSkills = [];
+
+            foreach ($request->skills as $skill) {
+                if (is_string($skill)) {
+                    // It's a custom skill name
+                    $existingSkill = \App\Models\Skill::where('name', $skill)->first();
+                    if ($existingSkill) {
+                        $skillIds[] = $existingSkill->id;
+                    } else {
+                        // Create new skill with approved status (admin-added)
+                        $newSkill = \App\Models\Skill::create(['name' => $skill, 'status' => 'approved']);
+                        $skillIds[] = $newSkill->id;
+                    }
+                } else {
+                    // It's a skill ID
+                    $skillIds[] = $skill;
+                }
+            }
+
+            if (!empty($skillIds)) {
+                $employee->skills()->sync($skillIds);
+            }
+        }
+
+        // Create initial subscription record
+        EmployeePlanSubscription::create([
+            'employee_id' => $employee->id,
+            'plan_id' => $defaultPlan->id,
+            'started_at' => now(),
+            'expires_at' => $defaultPlan->validity_days > 0 ? now()->addDays($defaultPlan->validity_days) : null,
+            'status' => 'active',
+            'jobs_remaining' => $defaultPlan->jobs_can_apply,
+            'contact_views_remaining' => $defaultPlan->contact_details_can_view,
+        ]);
+
+        return response()->json([
+            'message' => 'Employee created successfully',
+            'employee' => $employee->load('plan', 'skills', 'educations'),
+        ], 201);
     }
 
     /**
@@ -287,7 +446,7 @@ class AdminController extends Controller
     {
         $this->authorizeRole($request, ['super_admin', 'manager']);
 
-        $query = Employer::with('plan.features', 'industry');
+        $query = Employer::with('plan.features', 'industry', 'addedByAdmin:id,name,email');
 
         // Search by company_name, email, or contact
         if ($request->filled('search')) {
@@ -317,6 +476,9 @@ class AdminController extends Controller
             $query->where('account_status', $request->account_status);
         }
 
+        // Order by latest first
+        $query->orderBy('created_at', 'desc');
+
         $employers = $query->paginate($request->input('per_page', 20));
 
         return response()->json(['employers' => $employers], 200);
@@ -329,13 +491,83 @@ class AdminController extends Controller
     {
         $this->authorizeRole($request, ['super_admin', 'manager']);
 
-        $employer = Employer::with('plan.features', 'industry', 'jobs')->find($id);
+        $employer = Employer::with('plan.features', 'industry', 'jobs', 'addedByAdmin:id,name,email')->find($id);
 
         if (!$employer) {
             return response()->json(['message' => 'Employer not found'], 404);
         }
 
         return response()->json(['employer' => $employer], 200);
+    }
+
+    /**
+     * Create employer (Admin can add employers)
+     */
+    public function createEmployer(Request $request)
+    {
+        $this->authorizeRole($request, ['super_admin', 'manager']);
+
+        $validator = Validator::make($request->all(), [
+            'company_name' => 'required|string|max:255',
+            'email' => 'required|email|unique:employers,email',
+            'contact' => 'required|string|max:20',
+            'password' => 'required|string|min:6',
+            'industry_type_id' => 'required|exists:industries,id',
+            'address' => 'nullable|array',
+            'address.street' => 'nullable|string',
+            'address.city' => 'nullable|string',
+            'address.state' => 'nullable|string',
+            'address.zip' => 'nullable|string',
+            'address.country' => 'nullable|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        // Get the default plan for employers
+        $defaultPlan = Plan::getDefaultPlan('employer');
+
+        if (!$defaultPlan) {
+            return response()->json([
+                'message' => 'Default plan not found. Please contact support.',
+            ], 500);
+        }
+
+        // Calculate plan expiry date
+        $planStartedAt = Carbon::now();
+        $planExpiresAt = $planStartedAt->copy()->addDays($defaultPlan->validity_days);
+
+        $employer = Employer::create([
+            'company_name' => $request->company_name,
+            'email' => $request->email,
+            'contact' => $request->contact,
+            'password' => $request->password,
+            'industry_type' => $request->industry_type_id,
+            'address' => $request->address,
+            'plan_id' => $defaultPlan->id,
+            'plan_started_at' => $planStartedAt,
+            'plan_expires_at' => $planExpiresAt,
+            'plan_is_active' => true,
+            'account_status' => 'approved', // Auto-approve admin-created employers
+            'added_by_admin_id' => $request->user()->id, // Track which admin created this employer
+        ]);
+
+        // Create subscription record
+        EmployerPlanSubscription::create([
+            'employer_id' => $employer->id,
+            'plan_id' => $defaultPlan->id,
+            'started_at' => $planStartedAt,
+            'expires_at' => $planExpiresAt,
+            'status' => 'active',
+            'is_default' => true,
+            'contact_views_remaining' => $defaultPlan->employee_contact_details_can_view,
+        ]);
+
+        return response()->json([
+            'message' => 'Employer created successfully',
+            'employer' => $employer->load('plan', 'industry'),
+        ], 201);
     }
 
     /**
@@ -390,6 +622,74 @@ class AdminController extends Controller
         $employer->update(['account_status' => 'approved']);
 
         return response()->json(['message' => 'Employer approved successfully'], 200);
+    }
+
+    /**
+     * Create job for employer (Admin can add jobs for employers)
+     */
+    public function createJobForEmployer(Request $request, $employerId)
+    {
+        $this->authorizeRole($request, ['super_admin', 'manager']);
+
+        $validator = Validator::make($request->all(), [
+            'title' => 'required|string|max:255',
+            'description' => 'required|string',
+            'salary' => 'nullable|string',
+            'location_id' => 'required|exists:locations,id',
+            'category_id' => 'required|exists:job_categories,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $employer = Employer::with('plan')->find($employerId);
+
+        if (!$employer) {
+            return response()->json(['message' => 'Employer not found'], 404);
+        }
+
+        // Check if employer has an active plan
+        if (!$employer->plan) {
+            return response()->json([
+                'message' => 'No plan assigned to this employer. Please assign a plan first.'
+            ], 403);
+        }
+
+        // Check job posting limit
+        $jobsCanPost = $employer->plan->jobs_can_post;
+        if ($jobsCanPost !== -1) {
+            $currentJobCount = Job::where('employer_id', $employer->id)->count();
+
+            if ($currentJobCount >= $jobsCanPost) {
+                return response()->json([
+                    'message' => 'This employer has reached their job posting limit (' . $jobsCanPost . ' jobs). Please upgrade their plan to post more jobs.',
+                    'current_jobs' => $currentJobCount,
+                    'limit' => $jobsCanPost,
+                ], 403);
+            }
+        }
+
+        try {
+            $job = Job::create([
+                'employer_id' => $employer->id,
+                'title' => $request->title,
+                'description' => $request->description,
+                'salary' => $request->salary,
+                'location_id' => $request->location_id,
+                'category_id' => $request->category_id,
+                'is_featured' => false,
+            ]);
+
+            return response()->json([
+                'message' => 'Job created successfully for ' . $employer->company_name,
+                'job' => $job->load('location', 'category'),
+            ], 201);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Failed to create job: ' . $e->getMessage()
+            ], 500);
+        }
     }
 
     /**

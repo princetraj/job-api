@@ -129,17 +129,20 @@ Route::prefix('v1/admin')->middleware(['auth:sanctum', 'admin'])->group(function
     Route::get('/employees', [AdminController::class, 'getEmployees']);
     Route::get('/employees/export', [AdminController::class, 'exportEmployees']);
     Route::get('/employees/{id}', [AdminController::class, 'getEmployee']);
+    Route::post('/employees', [AdminController::class, 'createEmployee']);
     Route::put('/employees/{id}', [AdminController::class, 'updateEmployee']);
     Route::delete('/employees/{id}', [AdminController::class, 'deleteEmployee']);
     Route::put('/employees/{id}/approve', [AdminController::class, 'approveEmployee']);
 
     // Employer Management
     Route::get('/employers', [AdminController::class, 'getEmployers']);
+    Route::post('/employers', [AdminController::class, 'createEmployer']);
     Route::get('/employers/export', [AdminController::class, 'exportEmployers']);
     Route::get('/employers/{id}', [AdminController::class, 'getEmployer']);
     Route::put('/employers/{id}', [AdminController::class, 'updateEmployer']);
     Route::delete('/employers/{id}', [AdminController::class, 'deleteEmployer']);
     Route::put('/employers/{id}/approve', [AdminController::class, 'approveEmployer']);
+    Route::post('/employers/{employerId}/jobs', [AdminController::class, 'createJobForEmployer']);
 
     // Job Management
     Route::get('/jobs', [AdminController::class, 'getJobs']);

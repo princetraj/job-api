@@ -46,6 +46,7 @@ class Employee extends Authenticatable
         'profile_photo_url',
         'profile_photo_status',
         'profile_photo_rejection_reason',
+        'created_by_admin_id',
     ];
 
     protected $hidden = [
@@ -80,6 +81,14 @@ class Employee extends Authenticatable
     public function plan()
     {
         return $this->belongsTo(Plan::class);
+    }
+
+    /**
+     * Get the admin who created this employee (if created by admin).
+     */
+    public function createdByAdmin()
+    {
+        return $this->belongsTo(Admin::class, 'created_by_admin_id');
     }
 
     /**

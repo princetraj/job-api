@@ -38,6 +38,7 @@ class Employer extends Authenticatable
         'plan_started_at',
         'plan_expires_at',
         'plan_is_active',
+        'added_by_admin_id',
     ];
 
     protected $hidden = [
@@ -135,5 +136,13 @@ class Employer extends Authenticatable
     public function isPlanExpired()
     {
         return $this->plan_expires_at !== null && $this->plan_expires_at->isPast();
+    }
+
+    /**
+     * Get the admin who added this employer.
+     */
+    public function addedByAdmin()
+    {
+        return $this->belongsTo(Admin::class, 'added_by_admin_id');
     }
 }
