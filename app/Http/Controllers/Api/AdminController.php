@@ -62,13 +62,26 @@ class AdminController extends Controller
     }
 
     /**
-     * Get all employees (Employee Manager / Super Admin)
+     * Get all employees (Super Admin / Manager / Staff)
      */
     public function getEmployees(Request $request)
     {
-        $this->authorizeRole($request, ['super_admin', 'manager']);
+        $this->authorizeRole($request, ['super_admin', 'manager', 'staff']);
 
+        $admin = $request->user();
         $query = Employee::with('plan.features', 'createdByAdmin:id,name,email');
+
+        // Role-based filtering
+        if ($admin->role === 'staff') {
+            // Staff can only see employees they created
+            $query->where('created_by_admin_id', $admin->id);
+        } elseif ($admin->role === 'manager') {
+            // Manager can see employees created by themselves and their assigned staff
+            $staffIds = Admin::where('manager_id', $admin->id)->pluck('id')->toArray();
+            $staffIds[] = $admin->id; // Include manager's own created employees
+            $query->whereIn('created_by_admin_id', $staffIds);
+        }
+        // Super admin sees all employees (no filter)
 
         // Search by name, email, or mobile
         if ($request->filled('search')) {
@@ -111,12 +124,28 @@ class AdminController extends Controller
      */
     public function getEmployee(Request $request, $id)
     {
-        $this->authorizeRole($request, ['super_admin', 'manager']);
+        $this->authorizeRole($request, ['super_admin', 'manager', 'staff']);
 
+        $admin = $request->user();
         $employee = Employee::with('plan.features', 'jobApplications', 'createdByAdmin:id,name,email')->find($id);
 
         if (!$employee) {
             return response()->json(['message' => 'Employee not found'], 404);
+        }
+
+        // Role-based access check
+        if ($admin->role === 'staff') {
+            // Staff can only view employees they created
+            if ($employee->created_by_admin_id !== $admin->id) {
+                return response()->json(['message' => 'Unauthorized access'], 403);
+            }
+        } elseif ($admin->role === 'manager') {
+            // Manager can view employees created by themselves and their assigned staff
+            $staffIds = Admin::where('manager_id', $admin->id)->pluck('id')->toArray();
+            $staffIds[] = $admin->id;
+            if (!in_array($employee->created_by_admin_id, $staffIds)) {
+                return response()->json(['message' => 'Unauthorized access'], 403);
+            }
         }
 
         return response()->json(['employee' => $employee], 200);
@@ -127,7 +156,7 @@ class AdminController extends Controller
      */
     public function createEmployee(Request $request)
     {
-        $this->authorizeRole($request, ['super_admin', 'manager']);
+        $this->authorizeRole($request, ['super_admin', 'manager', 'staff']);
 
         $validator = Validator::make($request->all(), [
             'email' => 'required|email|unique:employees,email',
@@ -283,12 +312,26 @@ class AdminController extends Controller
      */
     public function updateEmployee(Request $request, $id)
     {
-        $this->authorizeRole($request, ['super_admin', 'manager']);
+        $this->authorizeRole($request, ['super_admin', 'manager', 'staff']);
 
+        $admin = $request->user();
         $employee = Employee::find($id);
 
         if (!$employee) {
             return response()->json(['message' => 'Employee not found'], 404);
+        }
+
+        // Role-based access check
+        if ($admin->role === 'staff') {
+            if ($employee->created_by_admin_id !== $admin->id) {
+                return response()->json(['message' => 'Unauthorized access'], 403);
+            }
+        } elseif ($admin->role === 'manager') {
+            $staffIds = Admin::where('manager_id', $admin->id)->pluck('id')->toArray();
+            $staffIds[] = $admin->id;
+            if (!in_array($employee->created_by_admin_id, $staffIds)) {
+                return response()->json(['message' => 'Unauthorized access'], 403);
+            }
         }
 
         $employee->update($request->only(['name', 'email', 'mobile', 'plan_id']));
@@ -301,12 +344,26 @@ class AdminController extends Controller
      */
     public function deleteEmployee(Request $request, $id)
     {
-        $this->authorizeRole($request, ['super_admin', 'manager']);
+        $this->authorizeRole($request, ['super_admin', 'manager', 'staff']);
 
+        $admin = $request->user();
         $employee = Employee::find($id);
 
         if (!$employee) {
             return response()->json(['message' => 'Employee not found'], 404);
+        }
+
+        // Role-based access check
+        if ($admin->role === 'staff') {
+            if ($employee->created_by_admin_id !== $admin->id) {
+                return response()->json(['message' => 'Unauthorized access'], 403);
+            }
+        } elseif ($admin->role === 'manager') {
+            $staffIds = Admin::where('manager_id', $admin->id)->pluck('id')->toArray();
+            $staffIds[] = $admin->id;
+            if (!in_array($employee->created_by_admin_id, $staffIds)) {
+                return response()->json(['message' => 'Unauthorized access'], 403);
+            }
         }
 
         $employee->delete();
@@ -319,7 +376,7 @@ class AdminController extends Controller
      */
     public function approveEmployee(Request $request, $id)
     {
-        $this->authorizeRole($request, ['super_admin', 'manager']);
+        $this->authorizeRole($request, ['super_admin', 'manager', 'staff']);
 
         $employee = Employee::find($id);
 
@@ -337,9 +394,19 @@ class AdminController extends Controller
      */
     public function exportEmployees(Request $request)
     {
-        $this->authorizeRole($request, ['super_admin', 'manager']);
+        $this->authorizeRole($request, ['super_admin', 'manager', 'staff']);
 
+        $admin = $request->user();
         $query = Employee::with('plan');
+
+        // Role-based filtering
+        if ($admin->role === 'staff') {
+            $query->where('created_by_admin_id', $admin->id);
+        } elseif ($admin->role === 'manager') {
+            $staffIds = Admin::where('manager_id', $admin->id)->pluck('id')->toArray();
+            $staffIds[] = $admin->id;
+            $query->whereIn('created_by_admin_id', $staffIds);
+        }
 
         // Apply same filters as getEmployees
         if ($request->filled('search')) {
@@ -440,13 +507,26 @@ class AdminController extends Controller
     }
 
     /**
-     * Get all employers (Employer Manager / Super Admin)
+     * Get all employers (Super Admin / Manager / Staff)
      */
     public function getEmployers(Request $request)
     {
-        $this->authorizeRole($request, ['super_admin', 'manager']);
+        $this->authorizeRole($request, ['super_admin', 'manager', 'staff']);
 
+        $admin = $request->user();
         $query = Employer::with('plan.features', 'industry', 'addedByAdmin:id,name,email');
+
+        // Role-based filtering
+        if ($admin->role === 'staff') {
+            // Staff can only see employers they created
+            $query->where('added_by_admin_id', $admin->id);
+        } elseif ($admin->role === 'manager') {
+            // Manager can see employers created by themselves and their assigned staff
+            $staffIds = Admin::where('manager_id', $admin->id)->pluck('id')->toArray();
+            $staffIds[] = $admin->id; // Include manager's own created employers
+            $query->whereIn('added_by_admin_id', $staffIds);
+        }
+        // Super admin sees all employers (no filter)
 
         // Search by company_name, email, or contact
         if ($request->filled('search')) {
@@ -489,12 +569,28 @@ class AdminController extends Controller
      */
     public function getEmployer(Request $request, $id)
     {
-        $this->authorizeRole($request, ['super_admin', 'manager']);
+        $this->authorizeRole($request, ['super_admin', 'manager', 'staff']);
 
+        $admin = $request->user();
         $employer = Employer::with('plan.features', 'industry', 'jobs', 'addedByAdmin:id,name,email')->find($id);
 
         if (!$employer) {
             return response()->json(['message' => 'Employer not found'], 404);
+        }
+
+        // Role-based access check
+        if ($admin->role === 'staff') {
+            // Staff can only view employers they created
+            if ($employer->added_by_admin_id !== $admin->id) {
+                return response()->json(['message' => 'Unauthorized access'], 403);
+            }
+        } elseif ($admin->role === 'manager') {
+            // Manager can view employers created by themselves and their assigned staff
+            $staffIds = Admin::where('manager_id', $admin->id)->pluck('id')->toArray();
+            $staffIds[] = $admin->id;
+            if (!in_array($employer->added_by_admin_id, $staffIds)) {
+                return response()->json(['message' => 'Unauthorized access'], 403);
+            }
         }
 
         return response()->json(['employer' => $employer], 200);
@@ -505,7 +601,7 @@ class AdminController extends Controller
      */
     public function createEmployer(Request $request)
     {
-        $this->authorizeRole($request, ['super_admin', 'manager']);
+        $this->authorizeRole($request, ['super_admin', 'manager', 'staff']);
 
         $validator = Validator::make($request->all(), [
             'company_name' => 'required|string|max:255',
@@ -575,12 +671,26 @@ class AdminController extends Controller
      */
     public function updateEmployer(Request $request, $id)
     {
-        $this->authorizeRole($request, ['super_admin', 'manager']);
+        $this->authorizeRole($request, ['super_admin', 'manager', 'staff']);
 
+        $admin = $request->user();
         $employer = Employer::find($id);
 
         if (!$employer) {
             return response()->json(['message' => 'Employer not found'], 404);
+        }
+
+        // Role-based access check
+        if ($admin->role === 'staff') {
+            if ($employer->added_by_admin_id !== $admin->id) {
+                return response()->json(['message' => 'Unauthorized access'], 403);
+            }
+        } elseif ($admin->role === 'manager') {
+            $staffIds = Admin::where('manager_id', $admin->id)->pluck('id')->toArray();
+            $staffIds[] = $admin->id;
+            if (!in_array($employer->added_by_admin_id, $staffIds)) {
+                return response()->json(['message' => 'Unauthorized access'], 403);
+            }
         }
 
         $employer->update($request->only(['company_name', 'email', 'contact', 'plan_id']));
@@ -593,12 +703,26 @@ class AdminController extends Controller
      */
     public function deleteEmployer(Request $request, $id)
     {
-        $this->authorizeRole($request, ['super_admin', 'manager']);
+        $this->authorizeRole($request, ['super_admin', 'manager', 'staff']);
 
+        $admin = $request->user();
         $employer = Employer::find($id);
 
         if (!$employer) {
             return response()->json(['message' => 'Employer not found'], 404);
+        }
+
+        // Role-based access check
+        if ($admin->role === 'staff') {
+            if ($employer->added_by_admin_id !== $admin->id) {
+                return response()->json(['message' => 'Unauthorized access'], 403);
+            }
+        } elseif ($admin->role === 'manager') {
+            $staffIds = Admin::where('manager_id', $admin->id)->pluck('id')->toArray();
+            $staffIds[] = $admin->id;
+            if (!in_array($employer->added_by_admin_id, $staffIds)) {
+                return response()->json(['message' => 'Unauthorized access'], 403);
+            }
         }
 
         $employer->delete();
@@ -611,7 +735,7 @@ class AdminController extends Controller
      */
     public function approveEmployer(Request $request, $id)
     {
-        $this->authorizeRole($request, ['super_admin', 'manager']);
+        $this->authorizeRole($request, ['super_admin', 'manager', 'staff']);
 
         $employer = Employer::find($id);
 
@@ -629,7 +753,7 @@ class AdminController extends Controller
      */
     public function createJobForEmployer(Request $request, $employerId)
     {
-        $this->authorizeRole($request, ['super_admin', 'manager']);
+        $this->authorizeRole($request, ['super_admin', 'manager', 'staff']);
 
         $validator = Validator::make($request->all(), [
             'title' => 'required|string|max:255',
@@ -697,9 +821,19 @@ class AdminController extends Controller
      */
     public function exportEmployers(Request $request)
     {
-        $this->authorizeRole($request, ['super_admin', 'manager']);
+        $this->authorizeRole($request, ['super_admin', 'manager', 'staff']);
 
+        $admin = $request->user();
         $query = Employer::with('plan', 'industry');
+
+        // Role-based filtering
+        if ($admin->role === 'staff') {
+            $query->where('added_by_admin_id', $admin->id);
+        } elseif ($admin->role === 'manager') {
+            $staffIds = Admin::where('manager_id', $admin->id)->pluck('id')->toArray();
+            $staffIds[] = $admin->id;
+            $query->whereIn('added_by_admin_id', $staffIds);
+        }
 
         // Apply same filters as getEmployers
         if ($request->filled('search')) {
@@ -965,22 +1099,29 @@ class AdminController extends Controller
     }
 
     /**
-     * Get all admins (Super Admin only)
+     * Get all admins (Super Admin and Manager)
      */
     public function getAdmins(Request $request)
     {
-        $this->authorizeRole($request, ['super_admin']);
+        $this->authorizeRole($request, ['super_admin', 'manager']);
 
+        $admin = $request->user();
         $query = Admin::with('manager');
 
-        // Filter by role (staff or manager)
-        if ($request->has('role') && in_array($request->role, ['staff', 'manager'])) {
-            $query->where('role', $request->role);
-        }
+        // If the user is a manager, automatically filter to show only their assigned staff
+        if ($admin->role === 'manager') {
+            $query->where('manager_id', $admin->id)
+                  ->where('role', 'staff');
+        } else {
+            // Super admin can filter by role (staff or manager)
+            if ($request->has('role') && in_array($request->role, ['staff', 'manager'])) {
+                $query->where('role', $request->role);
+            }
 
-        // Filter by manager_id (find staff assigned to a specific manager)
-        if ($request->has('manager_id')) {
-            $query->where('manager_id', $request->manager_id);
+            // Super admin can filter by manager_id (find staff assigned to a specific manager)
+            if ($request->has('manager_id')) {
+                $query->where('manager_id', $request->manager_id);
+            }
         }
 
         $admins = $query->latest()->paginate(50);
@@ -1188,11 +1329,11 @@ class AdminController extends Controller
     }
 
     /**
-     * Get all managers (Super Admin only)
+     * Get all managers (Super Admin and Manager)
      */
     public function getManagers(Request $request)
     {
-        $this->authorizeRole($request, ['super_admin']);
+        $this->authorizeRole($request, ['super_admin', 'manager']);
 
         $managers = Admin::where('role', 'manager')
             ->withCount('staff')
@@ -1256,11 +1397,11 @@ class AdminController extends Controller
     }
 
     /**
-     * Upgrade employee plan (Admin: Super Admin / Plan Upgrade Manager)
+     * Upgrade employee plan (Admin: Super Admin / Manager / Staff)
      */
     public function upgradeEmployeePlan(Request $request, $employeeId)
     {
-        $this->authorizeRole($request, ['super_admin', 'manager']);
+        $this->authorizeRole($request, ['super_admin', 'manager', 'staff']);
 
         $validator = Validator::make($request->all(), [
             'plan_id' => 'required|exists:plans,id',
@@ -1326,11 +1467,11 @@ class AdminController extends Controller
     }
 
     /**
-     * Upgrade employer plan (Admin: Super Admin / Plan Upgrade Manager)
+     * Upgrade employer plan (Admin: Super Admin / Manager / Staff)
      */
     public function upgradeEmployerPlan(Request $request, $employerId)
     {
-        $this->authorizeRole($request, ['super_admin', 'manager']);
+        $this->authorizeRole($request, ['super_admin', 'manager', 'staff']);
 
         $validator = Validator::make($request->all(), [
             'plan_id' => 'required|exists:plans,id',
@@ -1491,13 +1632,30 @@ class AdminController extends Controller
     }
 
     /**
-     * Get all plan orders (Super Admin / Plan Upgrade Manager)
+     * Get all plan orders (Super Admin / Manager / Staff)
      */
     public function getPlanOrders(Request $request)
     {
-        $this->authorizeRole($request, ['super_admin', 'manager']);
+        $this->authorizeRole($request, ['super_admin', 'manager', 'staff']);
 
-        $query = PlanOrder::with(['plan', 'employee', 'employer', 'transaction', 'coupon']);
+        $admin = $request->user();
+        $query = PlanOrder::with(['plan', 'employee', 'employer', 'transaction', 'coupon.creator']);
+
+        // Role-based filtering
+        if ($admin->role === 'staff') {
+            // Staff can only see orders that used coupons they created
+            $query->whereHas('coupon', function ($q) use ($admin) {
+                $q->where('created_by', $admin->id);
+            });
+        } elseif ($admin->role === 'manager') {
+            // Manager can see orders that used coupons created by them or their assigned staff
+            $staffIds = Admin::where('manager_id', $admin->id)->pluck('id')->toArray();
+            $staffIds[] = $admin->id; // Include manager's own coupons
+            $query->whereHas('coupon', function ($q) use ($staffIds) {
+                $q->whereIn('created_by', $staffIds);
+            });
+        }
+        // Super admin sees all orders (no filter needed)
 
         // Filter by status
         if ($request->has('status')) {
@@ -1528,16 +1686,32 @@ class AdminController extends Controller
     }
 
     /**
-     * Get single plan order details (Super Admin / Plan Upgrade Manager)
+     * Get single plan order details (Super Admin / Manager / Staff)
      */
     public function getPlanOrder(Request $request, $id)
     {
-        $this->authorizeRole($request, ['super_admin', 'manager']);
+        $this->authorizeRole($request, ['super_admin', 'manager', 'staff']);
 
-        $order = PlanOrder::with(['plan', 'employee', 'employer', 'transaction', 'coupon'])->find($id);
+        $admin = $request->user();
+        $order = PlanOrder::with(['plan', 'employee', 'employer', 'transaction', 'coupon.creator'])->find($id);
 
         if (!$order) {
             return response()->json(['message' => 'Order not found'], 404);
+        }
+
+        // Role-based access check
+        if ($admin->role === 'staff') {
+            // Staff can only view orders that used coupons they created
+            if (!$order->coupon || $order->coupon->created_by !== $admin->id) {
+                return response()->json(['message' => 'Unauthorized access'], 403);
+            }
+        } elseif ($admin->role === 'manager') {
+            // Manager can view orders that used coupons created by them or their assigned staff
+            $staffIds = Admin::where('manager_id', $admin->id)->pluck('id')->toArray();
+            $staffIds[] = $admin->id;
+            if (!$order->coupon || !in_array($order->coupon->created_by, $staffIds)) {
+                return response()->json(['message' => 'Unauthorized access'], 403);
+            }
         }
 
         return response()->json(['order' => $order], 200);
